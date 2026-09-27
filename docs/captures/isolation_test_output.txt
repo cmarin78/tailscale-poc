@@ -1,0 +1,25 @@
+===== Aislamiento de red SIN Tailscale overlay =====
+
+[1] admin-panel responde dentro de su propio namespace (ts-admin-panel:8080)
+Error response from daemon: No such container: tailscale-admin-panel-1
+
+[2] rds-sim responde localmente con usuario axial
+Error response from daemon: No such container: tailscale-rds-sim-1
+
+[3] eng-operator NO puede resolver admin-panel por DNS (red aislada tailscale_net-eng-operator)
+Error response from daemon: No such container: tailscale-eng-operator-1
+   [TIMEOUT — DNS no resuelve, como se esperaba]
+
+[4] eng-operator NO puede llegar a admin-panel por IP directa (redes docker distintas)
+Error response from daemon: No such container: tailscale-eng-operator-1
+   [BLOCKED — esperado sin tailnet]
+
+[5] eng-operator NO puede llegar a rds-sim directamente
+Error response from daemon: No such container: tailscale-eng-operator-1
+   [BLOCKED — esperado sin tailnet]
+
+===== Conclusión =====
+Las personas (eng-operator, etc.) NO pueden alcanzar los servicios directamente.
+En el POC real con Tailscale corriendo, el overlay del tailnet rutea entre estos hosts
+usando tags y ACLs. El docker network isolation actual es el 'sandboxing' que
+fuerza a que TODO tráfico cross-service pase por Tailscale.

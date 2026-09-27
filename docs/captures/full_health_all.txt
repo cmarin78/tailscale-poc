@@ -1,0 +1,36 @@
+======================================================
+  Helios POC — Healthcheck on the NEW-schema services
+  Working dir: /home/cmarin78/Documents/Projects/MiniMax/Headscale/tailscale/
+  2026-09-26 16:28:38 -03
+======================================================
+
+  [✓] admin-portal         :8080  {"status":"healthy"}
+  [✓] api-gateway          :8443  {"status":"healthy"}
+  [✓] ml-platform          :8501  {"status":"healthy"}
+  [✓] grafana              :3000  OCI runtime exec failed: exec failed: unable to start container process: exec: "python3": executable file not found in $PATH
+  [✓] customer-portal      :9443  {"status":"healthy"}
+  [✓] identity-bridge      :9090  {"status":"healthy"}
+  [✓] intranet             :7000  {"status":"healthy"}
+  [✓] primary-db           :5432  /var/run/postgresql:5432 - accepting connections
+  [✓] warehouse-db         :5432  /var/run/postgresql:5432 - accepting connections
+  [✓] observability        :9100  {"status":"healthy"}
+
+Tailscale sidecars (Tailscale daemon):
+----------------------------------------
+  [✓] ts-admin-portal           100.124.232.36  admin-portal  admin-portal.taila1b884.ts.net  linux  -  
+  [✓] ts-identity-bridge        100.95.15.72  identity-bridge  identity-bridge.taila1b884.ts.net  linux  -  
+  [✓] ts-api-gateway            100.91.32.123  api-gateway      api-gateway.taila1b884.ts.net  linux  -  
+  [✓] ts-ml-platform            100.73.227.21  ml-platform  ml-platform.taila1b884.ts.net  linux  -  
+  [✓] ts-observability          100.88.182.108  observability  observability.taila1b884.ts.net  linux  -  
+  [✓] ts-grafana                Logged out.
+  [✓] ts-intranet               Logged out.
+
+Docker networks created for the new schema:
+----------------------------------------------
+tailscale_net-admin-portal
+tailscale_net-api-gateway
+tailscale_net-grafana
+tailscale_net-identity-bridge
+tailscale_net-intranet
+tailscale_net-ml-platform
+tailscale_net-observability

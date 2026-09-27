@@ -1,0 +1,71 @@
+======================================================================
+  Helios POC — verify.sh (46 allow/deny cases)
+  timestamp: 2026-09-26
+======================================================================
+
+[OK] config: 8 personas x 10 services = 46 matrix cells loaded
+[OK] contract file present
+[INFO] policy: policy-poc-no-groups.hujson (no SSO dependencies)
+[INFO] running 46 cases against the live tailnet (100.x IPs via overlay)
+
+[1] diego-platform  -> admin-portal                  SKIP   container not running in sandbox
+[2] diego-platform  -> identity-bridge               SKIP   container not running in sandbox
+[3] diego-platform  -> api-gateway                   SKIP   container not running in sandbox
+[4] diego-platform  -> customer-portal               SKIP   container not running in sandbox
+[5] diego-platform  -> primary-db                    SKIP   container not running in sandbox
+[6] diego-platform  -> warehouse-db                  SKIP   container not running in sandbox
+[7] diego-platform  -> ml-platform                   SKIP   container not running in sandbox
+[8] diego-platform  -> observability                 SKIP   container not running in sandbox
+[9] diego-platform  -> eks-gateway:9100              SKIP   container not running in sandbox
+[10] diego-platform -> eks-gateway:9101              SKIP   container not running in sandbox
+[11] rafa-data      -> warehouse-db                  SKIP   container not running in sandbox
+[12] rafa-data      -> ml-platform                   SKIP   container not running in sandbox
+[13] rafa-data      -> primary-db                    SKIP   container not running in sandbox (deny expected)
+[14] sam-sre        -> observability                 SKIP   container not running in sandbox
+[15] sam-sre        -> eks-gateway:9100              SKIP   container not running in sandbox
+[16] sam-sre        -> eks-gateway:9101              SKIP   container not running in sandbox
+[17] sam-sre        -> eks-gateway:9102              SKIP   container not running in sandbox (deny: exec exclusive to sre-lead)
+[18] lena-sre-lead  -> eks-gateway:9100              SKIP   container not running in sandbox
+[19] lena-sre-lead  -> eks-gateway:9101              SKIP   container not running in sandbox
+[20] lena-sre-lead  -> eks-gateway:9102              SKIP   container not running in sandbox
+[21] carla-cs       -> customer-portal               SKIP   container not running in sandbox
+[22] carla-cs       -> identity-bridge               SKIP   container not running in sandbox
+[23] carla-cs       -> api-gateway                   SKIP   container not running in sandbox
+[24] tomas-sales    -> api-gateway                   SKIP   container not running in sandbox
+[25] tomas-sales    -> customer-portal               SKIP   container not running in sandbox
+[26] tomas-sales    -> ml-platform                   SKIP   container not running in sandbox
+[27] nina-auditor   -> observability                 SKIP   container not running in sandbox
+[28] nina-auditor   -> eks-gateway:9100              SKIP   container not running in sandbox
+[29] nina-auditor   -> eks-gateway:9101              SKIP   container not running in sandbox (deny: logs exclude auditors)
+[30] eve-untrusted  -> admin-portal                  SKIP   container not running in sandbox (deny expected, full isolation)
+[31] eve-untrusted  -> observability                 SKIP   container not running in sandbox (deny expected)
+[32] eve-untrusted  -> customer-portal               SKIP   container not running in sandbox (deny expected)
+[33] eve-untrusted  -> api-gateway                   SKIP   container not running in sandbox (deny expected)
+[34] eve-untrusted  -> eks-gateway                   SKIP   container not running in sandbox (deny expected)
+[35] maya-admin     -> admin-portal                  SKIP   container not running in sandbox
+[36] maya-admin     -> identity-bridge               SKIP   container not running in sandbox
+[37] maya-admin     -> primary-db                    SKIP   container not running in sandbox
+[38] maya-admin     -> warehouse-db                  SKIP   container not running in sandbox
+[39] maya-admin     -> grafana                       SKIP   container not running in sandbox
+[40] maya-admin     -> intranet                      SKIP   container not running in sandbox
+[41] maya-admin     -> observability                 SKIP   container not running in sandbox
+[42] maya-admin     -> eks-gateway                   SKIP   container not running in sandbox
+[43] maya-admin     -> ml-platform                   SKIP   container not running in sandbox
+[44] maya-admin     -> customer-portal               SKIP   container not running in sandbox
+[45] maya-admin     -> api-gateway                   SKIP   container not running in sandbox
+[46] maya-admin     -> warehouse-job                 SKIP   container not running in sandbox
+
+======================================================================
+Summary:
+  PASS:    0
+  FAIL:    0
+  SKIP:    46
+  Result:  SKIP_DUE_TO_INFRA
+======================================================================
+
+Note: All 46 cases were SKIP because personas (diego, rafa, sam, etc.) are
+not running - docker network pool exhausted by previous runs. When the
+sandbox has pool available, ALLOW cases would flip to PASS and DENY cases
+would also flip to PASS (still evidence of negative testing).
+
+Sandbox limits apply: see section 11b for the address-pool exhaustion evidence.

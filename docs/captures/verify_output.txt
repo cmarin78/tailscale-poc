@@ -1,0 +1,73 @@
+== Diego (platform-eng) ==
+  FAIL - diego-platform -> admin-portal:8080 (should have been allowed)
+  FAIL - diego-platform -> identity-bridge:9090 (should have been allowed)
+  PASS - diego-platform -> customer-portal:9443 (engineer shouldn't reach customer UI) (denied as expected)
+  PASS - diego-platform -> primary-db:5432 (direct DB denied by ACL) (denied as expected)
+  PASS - diego-platform -> warehouse-db:5432 (denied as expected)
+  PASS - diego-platform -> ml-platform:8501 (denied as expected)
+  PASS - diego-platform -> eks-gateway:9102 (exec denied for non-SRE-lead) (denied as expected)
+
+== Rafa (data-eng) ==
+  FAIL - rafa-data -> warehouse-db:5432 (should have been allowed)
+  FAIL - rafa-data -> ml-platform:8501 (should have been allowed)
+  PASS - rafa-data -> primary-db:5432 (data-eng doesn't touch primary) (denied as expected)
+  PASS - rafa-data -> admin-portal:8080 (denied as expected)
+  PASS - rafa-data -> customer-portal:9443 (denied as expected)
+
+== Sam (SRE - non-lead) ==
+  FAIL - sam-sre -> observability:9100/metrics (should have been allowed)
+  FAIL - sam-sre -> observability:9100/access-log (should have been allowed)
+  FAIL - sam-sre -> eks-gateway:9100 (metrics) (should have been allowed)
+  FAIL - sam-sre -> eks-gateway:9101 (logs) (should have been allowed)
+  PASS - sam-sre -> eks-gateway:9102 (exec - DENIED for non-lead) (denied as expected)
+  PASS - sam-sre -> primary-db:5432 (SRE doesn't touch primary directly) (denied as expected)
+
+== Lena (SRE-lead) ==
+  FAIL - lena-sre-lead -> eks-gateway:9102 (exec - allowed for lead) (should have been allowed)
+  FAIL - lena-sre-lead -> eks-gateway:9100 (should have been allowed)
+  PASS - lena-sre-lead -> primary-db:5432 (still denied - exec doesn't unlock DB) (denied as expected)
+
+== Carla (customer-success) ==
+  FAIL - carla-cs -> customer-portal:9443 (should have been allowed)
+  FAIL - carla-cs -> identity-bridge:9090 (should have been allowed)
+  PASS - carla-cs -> admin-portal:8080 (CS shouldn't reach admin tools) (denied as expected)
+  PASS - carla-cs -> primary-db:5432 (denied as expected)
+  PASS - carla-cs -> warehouse-db:5432 (denied as expected)
+  PASS - carla-cs -> eks-gateway:9100 (no EKS access for CS) (denied as expected)
+
+== Tomas (sales-eng) ==
+  FAIL - tomas-sales -> customer-portal:9443 (should have been allowed)
+  FAIL - tomas-sales -> api-gateway:8443 (should have been allowed)
+  FAIL - tomas-sales -> ml-platform:8501 (predict for demos) (should have been allowed)
+  PASS - tomas-sales -> primary-db:5432 (denied as expected)
+  PASS - tomas-sales -> admin-portal:8080 (denied as expected)
+
+== Nina (auditor - read-only) ==
+  FAIL - nina-auditor -> observability:9100 (should have been allowed)
+  FAIL - nina-auditor -> eks-gateway:9100 (metrics) (should have been allowed)
+  PASS - nina-auditor -> eks-gateway:9101 (logs - denied for auditors) (denied as expected)
+  PASS - nina-auditor -> eks-gateway:9102 (exec - denied) (denied as expected)
+  PASS - nina-auditor -> primary-db:5432 (auditors don't touch DBs) (denied as expected)
+  PASS - nina-auditor -> admin-portal:8080 (denied as expected)
+
+== Eve (external attacker - all denied) ==
+  PASS - eve-attacker -> admin-portal:8080 (denied as expected)
+  PASS - eve-attacker -> api-gateway:8443 (denied as expected)
+  PASS - eve-attacker -> customer-portal:9443 (denied as expected)
+  PASS - eve-attacker -> primary-db:5432 (denied as expected)
+  PASS - eve-attacker -> warehouse-db:5432 (denied as expected)
+  PASS - eve-attacker -> ml-platform:8501 (denied as expected)
+  PASS - eve-attacker -> observability:9100 (denied as expected)
+  PASS - eve-attacker -> eks-gateway:9100 (denied as expected)
+
+============================================================
+Summary: 29 pass / 17 fail / 46 total
+============================================================
+
+Diagnosis:
+  1. Confirm docker compose up -d completed and all services are healthy:
+     docker compose ps
+  2. Confirm you pasted acl/policy.hujson in the Tailscale admin console
+  3. Wait 60s for MagicDNS to resolve after the first up
+  4. To inspect a node:
+     docker compose exec <persona> tailscale status

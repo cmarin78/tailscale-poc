@@ -1,0 +1,36 @@
+===== Network isolation WITHOUT Tailscale overlay =====
+
+[1] admin-panel responds within its own namespace (ts-admin-panel:8080)
+    {"status":"healthy"}
+
+
+[2] rds-sim responds locally with user axial
+ current_user | current_database
+--------------+------------------
+ axial        | axial_poc
+(1 row)
+
+[3] eng-operator CANNOT resolve admin-panel via DNS (isolated network tailscale_net-eng-operator)
+   [TIMEOUT - DNS does not resolve, as expected]
+
+[4] eng-operator CANNOT reach admin-panel via direct IP (distinct docker networks)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import socket; s=socket.socket(); s.settimeout(2); s.connect(("172.26.0.2", 8080))
+                                                       ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+OSError: [Errno 101] Network unreachable
+   [BLOCKED - expected without tailnet]
+
+[5] eng-operator CANNOT reach rds-sim directly
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import socket; s=socket.socket(); s.settimeout(2); s.connect(("192.168.48.2", 5432))
+                                                       ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+OSError: [Errno 101] Network unreachable
+   [BLOCKED - expected without tailnet]
+
+===== Conclusion =====
+Personas (eng-operator, etc.) CANNOT reach the services directly.
+In the real POC with Tailscale running, the tailnet overlay routes between these hosts
+using tags and ACLs. The current docker network isolation is the 'sandboxing' that
+forces EVERY cross-service hop to traverse Tailscale.

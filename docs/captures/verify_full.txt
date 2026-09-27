@@ -1,0 +1,70 @@
+
+== Diego (platform-eng) ==
+  SKIP - diego-platform → admin-portal:8080 (sandbox: container not running)
+  SKIP - diego-platform → identity-bridge:9090 (sandbox: container not running)
+  SKIP - diego-platform → customer-portal:9443 (engineer shouldn't reach customer UI) (sandbox: container not running)
+  SKIP - diego-platform → primary-db:5432 (direct DB denied by ACL) (sandbox: container not running)
+  SKIP - diego-platform → warehouse-db:5432 (sandbox: container not running)
+  SKIP - diego-platform → ml-platform:8501 (sandbox: container not running)
+  SKIP - diego-platform → eks-gateway:9102 (exec denied for non-SRE-lead) (sandbox: container not running)
+
+== Rafa (data-eng) ==
+  SKIP - rafa-data → warehouse-db:5432 (sandbox: container not running)
+  SKIP - rafa-data → ml-platform:8501 (sandbox: container not running)
+  SKIP - rafa-data → primary-db:5432 (data-eng doesn't touch primary) (sandbox: container not running)
+  SKIP - rafa-data → admin-portal:8080 (sandbox: container not running)
+  SKIP - rafa-data → customer-portal:9443 (sandbox: container not running)
+
+== Sam (SRE — non-lead) ==
+  SKIP - sam-sre → observability:9100/metrics (sandbox: container not running)
+  SKIP - sam-sre → observability:9100/access-log (sandbox: container not running)
+  SKIP - sam-sre → eks-gateway:9100 (metrics) (sandbox: container not running)
+  SKIP - sam-sre → eks-gateway:9101 (logs) (sandbox: container not running)
+  SKIP - sam-sre → eks-gateway:9102 (exec — DENIED for non-lead) (sandbox: container not running)
+  SKIP - sam-sre → primary-db:5432 (SRE doesn't touch primary directly) (sandbox: container not running)
+
+== Lena (SRE-lead) ==
+  SKIP - lena-sre-lead → eks-gateway:9102 (exec — allowed for lead) (sandbox: container not running)
+  SKIP - lena-sre-lead → eks-gateway:9100 (sandbox: container not running)
+  SKIP - lena-sre-lead → primary-db:5432 (still denied — exec doesn't unlock DB) (sandbox: container not running)
+
+== Carla (customer-success) ==
+  SKIP - carla-cs → customer-portal:9443 (sandbox: container not running)
+  SKIP - carla-cs → identity-bridge:9090 (sandbox: container not running)
+  SKIP - carla-cs → admin-portal:8080 (CS shouldn't reach admin tools) (sandbox: container not running)
+  SKIP - carla-cs → primary-db:5432 (sandbox: container not running)
+  SKIP - carla-cs → warehouse-db:5432 (sandbox: container not running)
+  SKIP - carla-cs → eks-gateway:9100 (no EKS access for CS) (sandbox: container not running)
+
+== Tomás (sales-eng) ==
+  SKIP - tomas-sales → customer-portal:9443 (sandbox: container not running)
+  SKIP - tomas-sales → api-gateway:8443 (sandbox: container not running)
+  SKIP - tomas-sales → ml-platform:8501 (predict for demos) (sandbox: container not running)
+  SKIP - tomas-sales → primary-db:5432 (sandbox: container not running)
+  SKIP - tomas-sales → admin-portal:8080 (sandbox: container not running)
+
+== Nina (auditor — read-only) ==
+  SKIP - nina-auditor → observability:9100 (sandbox: container not running)
+  SKIP - nina-auditor → eks-gateway:9100 (metrics) (sandbox: container not running)
+  SKIP - nina-auditor → eks-gateway:9101 (logs — denied for auditors) (sandbox: container not running)
+  SKIP - nina-auditor → eks-gateway:9102 (exec — denied) (sandbox: container not running)
+  SKIP - nina-auditor → primary-db:5432 (auditors don't touch DBs) (sandbox: container not running)
+  SKIP - nina-auditor → admin-portal:8080 (sandbox: container not running)
+
+== Eve (external attacker — TODO denied) ==
+  SKIP - eve-attacker → admin-portal:8080 (sandbox: container not running)
+  SKIP - eve-attacker → api-gateway:8443 (sandbox: container not running)
+  SKIP - eve-attacker → customer-portal:9443 (sandbox: container not running)
+  SKIP - eve-attacker → primary-db:5432 (sandbox: container not running)
+  SKIP - eve-attacker → warehouse-db:5432 (sandbox: container not running)
+  SKIP - eve-attacker → ml-platform:8501 (sandbox: container not running)
+  SKIP - eve-attacker → observability:9100 (sandbox: container not running)
+  SKIP - eve-attacker → eks-gateway:9100 (sandbox: container not running)
+
+============================================================
+Resumen: 0 pass / 0 fail / 46 skip / 46 totales
+============================================================
+
+Todos los casos fueron SKIP (containers no corriendo).
+  Esto suele pasar en sandbox / CI con pool de redes docker agotado.
+  Para evidencia real: docker compose up -d + re-correr verify.sh

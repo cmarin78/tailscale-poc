@@ -1,0 +1,18 @@
+============================================================
+  Helios POC — Cross-service via MagicDNS
+  2026-09-26 16:30:08
+============================================================
+
+[1] MagicDNS FQDN resolution:
+  identity-bridge      -> ERR: gaierror: [Errno -2] Name or service not known
+  api-gateway          -> ERR: gaierror: [Errno -2] Name or service not known
+  ml-platform          -> ERR: gaierror: [Errno -2] Name or service not known
+  observability        -> ERR: gaierror: [Errno -2] Name or service not known
+  admin-portal         -> 100.124.232.36
+
+[2] HTTP via direct 100.x IP (Tailscale overlay):
+  identity-bridge      (100.95.15.72:9090)  URL ERR: [Errno 113] No route to host
+  api-gateway          (100.91.32.123:8443)  URL ERR: [Errno 113] No route to host
+  ml-platform          (100.73.227.21:8501)  URL ERR: [Errno 113] No route to host
+  observability        (100.88.182.108:9100)  URL ERR: [Errno 113] No route to host
+  admin-portal-self    (100.124.232.36:8080)  HTTP 200: {"status":"healthy"}

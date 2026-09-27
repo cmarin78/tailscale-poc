@@ -1,0 +1,21 @@
+===== ngrok + Authentik public URL proof =====
+
+Tunnel URL: https://sardine-overact-blast.***REDACTED***.dev
+ngrok web UI: http://localhost:4040 (in this sandbox)
+
+[1] GET / via public ngrok URL:
+  HTTP 200 (final URL after redirects: https://sardine-overact-blast.***REDACTED***.dev/if/flow/default-authentication-flow/?next=%2F)
+
+[2] GET /-/health/live/ via public ngrok URL:
+  HTTP 200
+
+[3] GET /api/v3/ via public ngrok URL:
+  HTTP 200
+
+[4] ngrok tunnel inspection (from localhost:4040):
+  tunnel name=authentik public_url=https://sardine-overact-blast.***REDACTED***.dev proto=https
+    config.addr=http://authentik-server:9000
+    metrics.conns.count=2
+
+[5] Docker network routing (ngrok -> authentik-server):
+  ***REDACTED***: 172.26.0.2  tailscale_default: 172.27.0.7

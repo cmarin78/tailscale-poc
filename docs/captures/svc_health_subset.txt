@@ -1,0 +1,36 @@
+===== Healthcheck on the NEW-schema running services =====
+
+  [admin-portal] port 8080 -> {"status":"healthy"}
+  [identity-bridge] port 9090 -> {"status":"healthy"}
+
+===== Tailscale sidecar information =====
+  [ts-admin-portal] state=running
+  [ts-identity-bridge] state=running
+
+===== Networks created (subset) =====
+tailscale_net-admin-portal: bridge
+tailscale_net-identity-bridge: bridge
+
+===== Connectivity verification =====
+[1] admin-portal responds on localhost:8080 (its own namespace)
+    {"status":"healthy"}
+
+
+[2] identity-bridge responds on localhost:9090
+    {"status":"healthy"}
+
+
+[3] admin-portal CANNOT resolve identity-bridge (separate docker networks, no tailnet overlay)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+socket.gaierror: [Errno -3] Temporary failure in name resolution
+
+[4] identity-bridge CANNOT resolve admin-portal
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+socket.gaierror: [Errno -3] Temporary failure in name resolution
+
+===== Conclusion =====
+Services UP and HEALTHY in the subset. Without an active Tailscale overlay, they do NOT see each other
+(each one in its own namespace). In the full POC with tailscale-sidecar running,
+MagicDNS would resolve them via 100.x IPs and the ACL would filter cross-service traffic.

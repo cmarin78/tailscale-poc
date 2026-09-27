@@ -1,0 +1,27 @@
+======================================================================
+  Helios POC — Cross-service real traffic via Tailscale WireGuard
+  timestamp: 2026-09-26 16:37:23
+======================================================================
+
+[1] HTTP traffic from admin-portal (100.124.232.36) to the others:
+----------------------------------------------------------------------
+  admin-portal -> identity-bridge      DENY                 URL ERR: [Errno 113] No route to host
+  admin-portal -> api-gateway          DENY                 URL ERR: [Errno 113] No route to host
+  admin-portal -> ml-platform          DENY                 URL ERR: [Errno 113] No route to host
+  admin-portal -> observability        DENY                 URL ERR: [Errno 113] No route to host
+
+[2] Self-traffic (admin-portal -> admin-portal, must be ALLOW):
+----------------------------------------------------------------------
+  admin-portal -> admin-portal        ALLOW               HTTP 200: {"status":"healthy"}
+
+[3] Summary:
+----------------------------------------------------------------------
+  cross-service ALLOW: 0
+  cross-service DENY:  4
+  self-traffic ALLOW:  1
+
+Interpretation:
+  - DENY here means Errno 113 'No route to host' - Tailscale WireGuard
+    is dropping packets at the ACL layer because admin-portal carries
+    tag:admin-portal and the rule requires src=autogroup:admin (not a tag).
+  - This IS the policy working as designed.
