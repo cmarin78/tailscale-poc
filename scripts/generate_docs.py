@@ -91,11 +91,11 @@ def _strip_control_chars(s):
             s = str(s)
         except Exception:
             return ""
-    # 1) Eliminar ANSI escapes y otros C0/C1 controls (excepto \n, \r, \t)
-    s = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "?", s)
-    # 2) Eliminar ESC + secuencias CSI / OSC que sobreviven
-    s = re.sub(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])", "?", s)
-    s = re.sub(r"\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)", "?", s)
+    # 1) Eliminar ANSI escapes COMPLETAMENTE (CSI, OSC, SGR, etc.) — sin reemplazar por ?
+    s = re.sub(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])", "", s)
+    s = re.sub(r"\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)", "", s)
+    # 2) Eliminar otros C0/C1 controls (excepto \n, \r, \t)
+    s = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", s)
     # 3) Eliminar cualquier surrogate / char no BMP problemático
     try:
         s = s.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
@@ -103,6 +103,8 @@ def _strip_control_chars(s):
         s = ""
     # 4) Reemplazar caracteres que rompen lxml.add_t (categoría Cc + Unicode raro)
     s = "".join(c if (c == "\n" or c == "\r" or c == "\t" or ord(c) >= 0x20) else "?" for c in s)
+    # 5) Limpiar espacios redundantes (ANSI a veces deja padding)
+    s = re.sub(r"[ \t]+$", "", s, flags=re.MULTILINE)  # trailing whitespace por línea
     return s
 
 
