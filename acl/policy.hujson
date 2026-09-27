@@ -1,0 +1,314 @@
+// Helios POC — Tailscale ACL policy
+// =============================================================================
+// Esta policy modela un B2B SaaS de ~50 empleados con 6 grupos funcionales y
+// 10 servicios. Los ingenieros (Diego, Rafa, Sam, etc.) entran al tailnet con
+// SSO corporativo; los servicios (admin-portal, identity-bridge, etc.) usan
+// tags. La policy distingue ambos tipos de src y los trata diferente.
+//
+// Pegar este archivo completo en el admin console de Tailscale:
+//   https://login.tailscale.com/admin/acls/file
+//
+// TODO cuando Helios crezca:
+//   - Mover a git con PR review (policy-as-code)
+//   - Generar via Terragrunt/Atlantis para evitar el paste manual
+//   - Auditar diff en cada PR via CI
+// =============================================================================
+
+{
+  // -------------------------------------------------------------------------
+  // tagOwners: quién puede asignar cada tag a un device.
+  // En prod: apuntar a grupos de Google Workspace reales (group:sre@helios.example).
+  // En este POC: dejamos autogroup:admin para mantenerlo simple (Maya es admin).
+  // -------------------------------------------------------------------------
+  "tagOwners": {
+    "tag:admin-portal":     ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:identity-bridge":  ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:api-gateway":      ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:customer-portal":  ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:primary-db":       ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:warehouse-db":     ["autogroup:admin", "group:data-eng@helios.example"],
+    "tag:ml-platform":      ["autogroup:admin", "group:data-eng@helios.example"],
+    "tag:warehouse-job":    ["autogroup:admin", "group:data-eng@helios.example"],
+    "tag:observability":    ["autogroup:admin", "group:sre@helios.example"],
+    "tag:eks-gateway":      ["autogroup:admin", "group:sre@helios.example"],
+    "tag:grafana":          ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:intranet":         ["autogroup:admin", "group:platform-eng@helios.example"]
+  },
+
+  // -------------------------------------------------------------------------
+  // acls: el corazón de la policy.
+  // Cada regla es (src, dst) → action. Lo que NO está listado está DENIED
+  // por default (Tailscale es deny-all por default si hay reglas; allow-all si
+  // no hay ninguna).
+  //
+  // Patrones que este POC demuestra:
+  //   - Granular por grupo Google (group:platform-eng@helios.example)
+  //   - Tags como identidad de servicio
+  //   - Personas con grupos distintos pueden llegar al MISMO servicio con
+  //     permisos DIFERENTES (read vs exec)
+  //   - DMZ con privilegios pero sin prod (Eve tiene authkey pero no aparece
+  //     en ningún src)
+  //   - Defensa-en-profundidad: portal admin y api-gateway son puntos de
+  //     entrada distintos con políticas distintas
+  // -------------------------------------------------------------------------
+  "acls": [
+    // ---------- admin-portal: solo platform-eng y admin ----------
+    // Plataforma es responsable de operarlo; customer-success NO entra al
+    // admin-portal (para eso usa customer-portal).
+    {
+      "action": "accept",
+      "src":    ["group:platform-eng@helios.example", "autogroup:admin"],
+      "dst":    ["tag:admin-portal:8080", "tag:admin-portal:443"]
+    },
+
+    // ---------- identity-bridge: platform-eng y customer-success (read) ----------
+    // CS usa identity-bridge para resolver problemas de login de clientes
+    // (es el "support tool"). Platform-eng lo opera.
+    {
+      "action": "accept",
+      "src":    ["group:platform-eng@helios.example", "autogroup:admin", "group:customer-success@helios.example"],
+      "dst":    ["tag:identity-bridge:9090"]
+    },
+
+    // ---------- api-gateway: customer-portal + sales-eng + platform ----------
+    // Sales-eng usa el gateway para demos a prospectos.
+    // customer-portal lo consume para operaciones de cliente.
+    // platform-eng lo opera.
+    {
+      "action": "accept",
+      "src":    ["tag:customer-portal", "group:sales-eng@helios.example", "group:platform-eng@helios.example", "autogroup:admin"],
+      "dst":    ["tag:api-gateway:8443"]
+    },
+
+    // ---------- customer-portal: solo CS y sales-eng (NO engineer) ----------
+    // Engineers NO deben usar el portal de clientes — van directo al gateway.
+    // Esta regla es la que demuestra "DMZ con privilegios pero sin prod": un
+    // engineer con tag de SRE no puede ver el portal aunque quisiera.
+    {
+      "action": "accept",
+      "src":    ["group:customer-success@helios.example", "group:sales-eng@helios.example", "autogroup:admin"],
+      "dst":    ["tag:customer-portal:9443"]
+    },
+
+    // ---------- primary-db: SOLO identity-bridge y warehouse-job ----------
+    // Nadie tiene acceso directo a la DB transaccional. Ni siquiera platform-eng.
+    // Esto es la regla más importante de la POC: la DB es accesible solo a
+    // través de servicios autorizados.
+    {
+      "action": "accept",
+      "src":    ["tag:identity-bridge", "tag:warehouse-job"],
+      "dst":    ["tag:primary-db:5432"]
+    },
+
+    // ---------- warehouse-db: SOLO warehouse-job + data-eng ----------
+    // Data engineers pueden leer el warehouse para análisis ad-hoc (BI tools).
+    // El job lo escribe como destino del ETL.
+    {
+      "action": "accept",
+      "src":    ["tag:warehouse-job", "group:data-eng@helios.example", "autogroup:admin"],
+      "dst":    ["tag:warehouse-db:5432"]
+    },
+
+    // ---------- ml-platform: predict para sales + CS, read-only para data-eng ----------
+    // Sales y CS consultan scoring en vivo durante demos / troubleshooting.
+    // Data-eng entrena modelos (no testeado en el POC: requiere acceso write).
+    {
+      "action": "accept",
+      "src":    ["group:sales-eng@helios.example", "group:customer-success@helios.example", "group:data-eng@helios.example", "autogroup:admin"],
+      "dst":    ["tag:ml-platform:8501"]
+    },
+
+    // ---------- observability: SRE + auditors ----------
+    // Auditors ven métricas (read-only); SRE operan.
+    {
+      "action": "accept",
+      "src":    ["group:sre@helios.example", "group:sre-lead@helios.example", "group:auditors@helios.example", "autogroup:admin"],
+      "dst":    ["tag:observability:9100", "tag:observability:9101"]
+    },
+
+    // ---------- grafana: dashboards sobre observability ----------
+    // Grafana hace proxy a observability internamente. Lo exponemos como
+    // servicio separado para que admins y SRE tengan una UI visual.
+    // Customer-success y sales NO aparecen — sin acceso a dashboards internos.
+    {
+      "action": "accept",
+      "src":    ["group:platform-eng@helios.example", "group:sre@helios.example", "group:sre-lead@helios.example", "group:admins@helios.example", "autogroup:admin"],
+      "dst":    ["tag:grafana:3000"]
+    },
+
+    // ---------- intranet: portal interno ----------
+    // La intranet es accesible para todos los empleados (con SSO).
+    // NO incluye externos ni atacantes.
+    {
+      "action": "accept",
+      "src":    ["group:platform-eng@helios.example", "group:data-eng@helios.example", "group:sre@helios.example", "group:sre-lead@helios.example", "group:customer-success@helios.example", "group:sales-eng@helios.example", "group:viewers@helios.example", "group:admins@helios.example", "autogroup:admin"],
+      "dst":    ["tag:intranet:7000"]
+    },
+
+    // ---------- EKS gateway: granular por puerto ----------
+    // SRE regular ve metrics + logs (9100, 9101); no puede exec (9102).
+    // SRE-lead (rol adicional) puede exec.
+    // Auditors ven metrics solamente.
+    // Customer-success y sales NO aparecen — quedan DENIED de todo EKS.
+    {
+      "action": "accept",
+      "src":    ["group:sre@helios.example", "group:sre-lead@helios.example", "group:auditors@helios.example", "autogroup:admin"],
+      "dst":    ["tag:eks-gateway:9100"]
+    },
+    {
+      "action": "accept",
+      "src":    ["group:sre@helios.example", "group:sre-lead@helios.example", "autogroup:admin"],
+      "dst":    ["tag:eks-gateway:9101"]
+    },
+    {
+      "action": "accept",
+      "src":    ["group:sre-lead@helios.example", "autogroup:admin"],
+      "dst":    ["tag:eks-gateway:9102"]
+    }
+  ],
+
+  // -------------------------------------------------------------------------
+  // ssh: acceso bastion-less a nodos de servicio para debugging.
+  // Maya (admin) puede a todo; platform-eng a sus servicios; SRE-lead a EKS.
+  // CS / Sales / Auditors / Data NO tienen SSH a nada — operan via web/API.
+  // -------------------------------------------------------------------------
+  "ssh": [
+    {
+      "action": "accept",
+      "src":    ["autogroup:admin"],
+      "dst":    ["tag:admin-portal", "tag:identity-bridge", "tag:api-gateway", "tag:customer-portal", "tag:primary-db", "tag:warehouse-db", "tag:ml-platform", "tag:warehouse-job", "tag:observability", "tag:eks-gateway"],
+      "users":  ["autogroup:nonroot", "root"]
+    },
+    {
+      "action": "accept",
+      "src":    ["group:platform-eng@helios.example"],
+      "dst":    ["tag:admin-portal", "tag:identity-bridge", "tag:api-gateway", "tag:customer-portal"],
+      "users":  ["autogroup:nonroot"]
+    },
+    {
+      "action": "accept",
+      "src":    ["group:data-eng@helios.example"],
+      "dst":    ["tag:warehouse-db", "tag:ml-platform", "tag:warehouse-job"],
+      "users":  ["autogroup:nonroot"]
+    },
+    {
+      "action": "accept",
+      "src":    ["group:sre-lead@helios.example"],
+      "dst":    ["tag:eks-gateway", "tag:observability"],
+      "users":  ["autogroup:nonroot"]
+    }
+  ],
+
+  // -------------------------------------------------------------------------
+  // grants: postura más rica que acls.
+  // Aquí modelamos "Eve puede EXISTIR en el tailnet pero no hablar con nadie"
+  // y "Nina (auditor) puede leer TODO via observability".
+  // Tailscale grants se evalúan cuando una regla acl no aplica.
+  // -------------------------------------------------------------------------
+  "grants": [
+    // Auditores: acceso de lectura a TODO lo expuesto, sin SSH ni exec.
+    // Esto es defensa-en-profundidad: si una regla `acls` falla, los auditors
+    // siguen pudiendo entrar via este grant.
+    {
+      "src": ["group:auditors@helios.example"],
+      "dst": ["tag:observability"],
+      "ip":  ["*"],
+      "app": {
+        "observability.read": [{}]
+      }
+    }
+  ],
+
+  // -------------------------------------------------------------------------
+  // autoApprovers: cuando una subnet route es anunciada, auto-aprobarla si
+  // el advertiser tiene el grupo correcto. Modela "el router de subnet del
+  // cliente en producción es confi-able porque su dueño es platform-eng".
+  // -------------------------------------------------------------------------
+  "autoApprovers": {
+    "routes": {
+      "10.99.0.0/16": ["group:platform-eng@helios.example", "autogroup:admin"]
+    }
+  },
+
+  // -------------------------------------------------------------------------
+  // postures: (Helios) identity check antes de permitir acciones sensibles.
+  // Esto se integra con device posture de Tailscale Manager (enterprise).
+  // Acá está como placeholder para mostrar la forma; en prod requiere Manager.
+  // -------------------------------------------------------------------------
+  "postures": {},
+
+  // -------------------------------------------------------------------------
+  // devicePosture: reglas que aplican a devices. Acá exigimos que los
+  // devices que tocan la DB estén en Linux con filesystem encryption.
+  // Requiere Tailscale Manager en prod.
+  // -------------------------------------------------------------------------
+  // "devicePosture": {
+  //   "require": {
+  //     "os": "linux",
+  //     "diskEncryption": true
+  //   }
+  // },
+
+  // -------------------------------------------------------------------------
+  // ACLs de IPv6: heredan de v4 por default, pero listamos explícito para
+  // legibilidad. Si Helios tiene servicios solo-IPv4 (más raro hoy), dejar
+  // solo v4.
+  // -------------------------------------------------------------------------
+  // (vacío — Tailscale aplica las reglas a ambas familias)
+
+  // -------------------------------------------------------------------------
+  // tests: casos de prueba documentados. Útil cuando se mueve a CI.
+  // Cada test es una matriz de (src, dst, want: accept|deny).
+  // Acá dejamos los 25 casos críticos que `scripts/verify.sh` ejecuta.
+  // -------------------------------------------------------------------------
+  "tests": [
+    // Grupo platform-eng
+    {"src": "diego-platform", "dst": "tag:admin-portal:8080", "accept": true},
+    {"src": "diego-platform", "dst": "tag:identity-bridge:9090", "accept": true},
+    {"src": "diego-platform", "dst": "tag:primary-db:5432", "accept": false},
+    {"src": "diego-platform", "dst": "tag:warehouse-db:5432", "accept": false},
+    {"src": "diego-platform", "dst": "tag:ml-platform:8501", "accept": false},
+    {"src": "diego-platform", "dst": "tag:customer-portal:9443", "accept": false},
+
+    // Grupo data-eng
+    {"src": "rafa-data", "dst": "tag:warehouse-db:5432", "accept": true},
+    {"src": "rafa-data", "dst": "tag:ml-platform:8501", "accept": true},
+    {"src": "rafa-data", "dst": "tag:primary-db:5432", "accept": false},
+    {"src": "rafa-data", "dst": "tag:admin-portal:8080", "accept": false},
+
+    // Grupo SRE (Sam)
+    {"src": "sam-sre", "dst": "tag:observability:9100", "accept": true},
+    {"src": "sam-sre", "dst": "tag:eks-gateway:9100", "accept": true},
+    {"src": "sam-sre", "dst": "tag:eks-gateway:9101", "accept": true},
+    {"src": "sam-sre", "dst": "tag:eks-gateway:9102", "accept": false}, // no exec
+    {"src": "sam-sre", "dst": "tag:primary-db:5432", "accept": false},
+
+    // SRE-lead (Lena)
+    {"src": "lena-sre-lead", "dst": "tag:eks-gateway:9102", "accept": true},
+    {"src": "lena-sre-lead", "dst": "tag:primary-db:5432", "accept": false},
+
+    // Customer success (Carla)
+    {"src": "carla-cs", "dst": "tag:customer-portal:9443", "accept": true},
+    {"src": "carla-cs", "dst": "tag:identity-bridge:9090", "accept": true},
+    {"src": "carla-cs", "dst": "tag:admin-portal:8080", "accept": false},
+    {"src": "carla-cs", "dst": "tag:primary-db:5432", "accept": false},
+    {"src": "carla-cs", "dst": "tag:eks-gateway:9100", "accept": false},
+
+    // Sales (Tomás)
+    {"src": "tomas-sales", "dst": "tag:customer-portal:9443", "accept": true},
+    {"src": "tomas-sales", "dst": "tag:api-gateway:8443", "accept": true},
+    {"src": "tomas-sales", "dst": "tag:ml-platform:8501", "accept": true},
+    {"src": "tomas-sales", "dst": "tag:primary-db:5432", "accept": false},
+
+    // Auditor (Nina)
+    {"src": "nina-auditor", "dst": "tag:observability:9100", "accept": true},
+    {"src": "nina-auditor", "dst": "tag:eks-gateway:9100", "accept": true},
+    {"src": "nina-auditor", "dst": "tag:eks-gateway:9102", "accept": false},
+    {"src": "nina-auditor", "dst": "tag:primary-db:5432", "accept": false},
+
+    // Atacante (Eve) — TODO denied
+    {"src": "eve-attacker", "dst": "tag:admin-portal:8080", "accept": false},
+    {"src": "eve-attacker", "dst": "tag:api-gateway:8443", "accept": false},
+    {"src": "eve-attacker", "dst": "tag:primary-db:5432", "accept": false}
+  ]
+}

@@ -1,0 +1,75 @@
+[
+  {
+    "username": "maya.admin",
+    "email": "maya.admin@helios.example",
+    "name": "Maya Admin",
+    "title": "Helios Ops Lead",
+    "groups": ["helios-admin"],
+    "groups_extra": ["platform-eng"],
+    "notes": "Admin del tailnet (autogroup:admin). También es platform-eng para tener fallback."
+  },
+  {
+    "username": "diego.platform",
+    "email": "diego.platform@helios.example",
+    "name": "Diego Platform",
+    "title": "Platform Engineer",
+    "groups": ["platform-eng"],
+    "notes": "Opera admin-portal, identity-bridge, api-gateway, customer-portal."
+  },
+  {
+    "username": "rafa.data",
+    "email": "rafa.data@helios.example",
+    "name": "Rafa Data",
+    "title": "Data Engineer",
+    "groups": ["data-eng"],
+    "notes": "Acceso a warehouse-db y ml-platform. NO a primary-db."
+  },
+  {
+    "username": "sam.sre",
+    "email": "sam.sre@helios.example",
+    "name": "Sam SRE",
+    "title": "Site Reliability Engineer",
+    "groups": ["sre"],
+    "notes": "Read metrics+logs en EKS gateway. NO exec."
+  },
+  {
+    "username": "lena.sre",
+    "email": "lena.sre.lead@helios.example",
+    "name": "Lena SRE Lead",
+    "title": "SRE Lead",
+    "groups": ["sre", "sre-lead"],
+    "notes": "Todo lo de SRE + exec en EKS."
+  },
+  {
+    "username": "carla.cs",
+    "email": "carla.cs@helios.example",
+    "name": "Carla Customer Success",
+    "title": "Customer Success Manager",
+    "groups": ["customer-success"],
+    "notes": "customer-portal (read), identity-bridge (read). NO admin-portal ni DB."
+  },
+  {
+    "username": "tomas.sales",
+    "email": "tomas.sales@helios.example",
+    "name": "Tomás Sales",
+    "title": "Sales Engineer",
+    "groups": ["sales-eng"],
+    "notes": "Demos: customer-portal, api-gateway, ml-platform."
+  },
+  {
+    "username": "nina.auditor",
+    "email": "nina.auditor@helios.example",
+    "name": "Nina Auditor",
+    "title": "External Auditor",
+    "groups": ["auditors"],
+    "notes": "Read-only en observability y metrics EKS. Sin SSH ni exec."
+  },
+  {
+    "username": "eve.attacker",
+    "email": "eve.attacker@external.example",
+    "name": "Eve Attacker",
+    "title": "External Simulated Threat",
+    "groups": ["untrusted"],
+    "notes": "Cuenta simulada de atacante externo. La ACL no la referencia — debería ser DENIED en todo."
+  }
+]

@@ -1,0 +1,60 @@
+{
+	"tagOwners": {
+		"tag:admin-portal": [
+			"autogroup:admin"
+		],
+		"tag:identity-bridge": [
+			"autogroup:admin"
+		],
+		"tag:api-gateway": [
+			"autogroup:admin"
+		],
+		"tag:customer-portal": [
+			"autogroup:admin"
+		],
+		"tag:primary-db": [
+			"autogroup:admin"
+		],
+		"tag:warehouse-db": [
+			"autogroup:admin"
+		],
+		"tag:ml-platform": [
+			"autogroup:admin"
+		],
+		"tag:warehouse-job": [
+			"autogroup:admin"
+		],
+		"tag:observability": [
+			"autogroup:admin"
+		],
+		"tag:eks-gateway": [
+			"autogroup:admin"
+		]
+	},
+	"acls": [
+		{
+			"action": "accept",
+			"src": [
+				"autogroup:admin"
+			],
+			"dst": [
+				"tag:admin-portal:8080",
+				"tag:admin-portal:443"
+			]
+		},
+		{
+			"action": "accept",
+			"src": [
+				"autogroup:admin"
+			],
+			"dst": [
+				"tag:identity-bridge:9090"
+			]
+		},
+		{
+			"action": "accept",
+			"src": [
+				"tag:customer-portal",
+				"autogroup:admin"
+			],
+			"dst": [

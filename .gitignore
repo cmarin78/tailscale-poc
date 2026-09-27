@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+.pytest_cache/
+
+# Secrets / runtime
+.env
+.env.local
+*.key
+*.pem
+*.secret
+secrets/
+.akadmin_password
+terraform/terraform.tfstate*
+
+# Generated docs
+docs/Helios-POC-Documentation.docx
+docs/captures/*.txt
+docs/diagrams/
+
+# OS
+.DS_Store
+*.swp
+*~

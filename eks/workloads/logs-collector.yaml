@@ -1,0 +1,33 @@
+# Workload EKS-like: logs-collector (simula Fluent Bit / CloudWatch Logs)
+# =========================================================================
+# Esto es lo que SRE consume via tag:eks-gateway:9101
+# =========================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: logs-collector
+  namespace: helios-staging
+  labels:
+    app: logs-collector
+    tier: observability
+spec:
+  containers:
+  - name: logs
+    image: mcr.microsoft.com/aks/hcp/hcp-base-image:1.0.4-linux-musl
+    command: ["/bin/sh", "-c", "sleep infinity"]
+    ports:
+    - containerPort: 9101
+      name: logs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: logs-collector
+  namespace: helios-staging
+spec:
+  selector:
+    app: logs-collector
+  ports:
+  - port: 9101
+    targetPort: 9101
+    name: logs

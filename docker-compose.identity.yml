@@ -1,0 +1,99 @@
+# Helios POC — simulated identity layer (Google Workspace style)
+# =========================================================================
+# Authentik is an open-source IdP that provides:
+#   - User/group management (via web UI on :9000)
+#   - OIDC provider (what Tailscale consumes for SSO)
+#   - SCIM 2.0 (not used here, but available)
+#   - Multi-factor (not enabled in this POC)
+#
+# In prod, this layer is replaced by real Google Workspace. Integration
+# with Tailscale is identical — only the issuer URL and claims change.
+#
+# =========================================================================
+
+services:
+  # ---------- Authentik Postgres ----------
+  authentik-postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=authentik
+      - POSTGRES_USER=authentik
+      - POSTGRES_PASSWORD=${AUTHENTIK_DB_PASSWORD:-authentik-local-poc}
+    volumes:
+      - authentik-pg-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authentik"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------- Authentik Redis ----------
+  authentik-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------- Authentik server ----------
+  authentik-server:
+    image: ghcr.io/goauthentik/server:2024.10
+    command: server
+    environment:
+      - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY:-change-me-please-change-me-please}
+      - AUTHENTIK_POSTGRESQL__HOST=authentik-postgres
+      - AUTHENTIK_POSTGRESQL__NAME=authentik
+      - AUTHENTIK_POSTGRESQL__USER=authentik
+      - AUTHENTIK_POSTGRESQL__PASSWORD=${AUTHENTIK_DB_PASSWORD:-authentik-local-poc}
+      - AUTHENTIK_REDIS__HOST=authentik-redis
+      - AUTHENTIK_ERROR_REPORTING__ENABLED=false
+    depends_on:
+      authentik-postgres:
+        condition: service_healthy
+      authentik-redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------- Bootstrap: creates users/groups/OIDC provider ----------
+  # This service runs once and exits. The seed.py script calls the Authentik
+  # API to create the 9 users, 6 groups, assign memberships, and configure
+  # the OIDC provider that Tailscale will consume.
+  id-bootstrap:
+    image: python:3.12-slim
+    working_dir: /bootstrap
+    volumes:
+      - ./identity/bootstrap:/bootstrap
+    command: ["python", "/bootstrap/seed.py"]
+    environment:
+      - AUTHENTIK_URL=${AUTHENTIK_URL:-http://authentik-server:9000}
+      - HELIOS_IDP_DOMAIN=${HELIOS_IDP_DOMAIN:-helios.example}
+      - AUTHENTIK_ADMIN_USER=akadmin
+      - AUTHENTIK_ADMIN_PASSWORD_FILE=/run/secrets/authentik_admin_password
+    secrets:
+      - authentik_admin_password
+    depends_on:
+      - authentik-server
+    restart: "no"
+
+  # ---------- Router: WebFinger + Authentik proxy ----------
+  # Sirve /.well-known/webfinger (requerido por Tailscale Custom OIDC) y
+  # proxy del resto a Authentik. ngrok apunta a este container.
+  router:
+    build: ./router
+    container_name: helios-router
+    depends_on:
+      - authentik-server
+    restart: unless-stopped
+    environment:
+      OIDC_ISSUER_URL: "https://sardine-overact-blast.ngrok-free.dev/application/o/helios-tailnet/"
+      AUTHENTIK_UPSTREAM: "http://authentik-server:9000"
+
+volumes:
+  authentik-pg-data:
+
+secrets:
+  authentik_admin_password:
+    file: ./identity/bootstrap/.akadmin_password

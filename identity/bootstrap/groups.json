@@ -1,0 +1,56 @@
+[
+  {
+    "name": "helios-admin",
+    "display_name": "Helios Admins",
+    "description": "Helios ops leads with full tailnet admin (autogroup:admin equivalent in this POC).",
+    "tier": "admin"
+  },
+  {
+    "name": "platform-eng",
+    "display_name": "Platform Engineering",
+    "description": "Owns and operates the internal services (admin-portal, identity-bridge, api-gateway, customer-portal, observability).",
+    "tier": "engineering"
+  },
+  {
+    "name": "data-eng",
+    "display_name": "Data Engineering",
+    "description": "Owns the data warehouse, ML platform, and ETL jobs. Read-only access to analytics.",
+    "tier": "engineering"
+  },
+  {
+    "name": "sre",
+    "display_name": "Site Reliability Engineering",
+    "description": "Operates the platform. Read metrics + logs on EKS gateway. No exec.",
+    "tier": "operations"
+  },
+  {
+    "name": "sre-lead",
+    "display_name": "SRE Leads",
+    "description": "SRE leads with exec capability on EKS gateway. Also have full SRE access.",
+    "tier": "operations-lead"
+  },
+  {
+    "name": "customer-success",
+    "display_name": "Customer Success",
+    "description": "Supports customers. Access to customer-portal (read) and identity-bridge (read). No DB, no admin tools.",
+    "tier": "operations"
+  },
+  {
+    "name": "sales-eng",
+    "display_name": "Sales Engineering",
+    "description": "Runs demos. Access to customer-portal, api-gateway, ml-platform (predict only).",
+    "tier": "operations"
+  },
+  {
+    "name": "auditors",
+    "display_name": "External Auditors",
+    "description": "SOC 2 / compliance auditors. Read-only access to observability. No DB, no SSH, no exec.",
+    "tier": "read-only"
+  },
+  {
+    "name": "untrusted",
+    "display_name": "Untrusted (default deny)",
+    "description": "Bucket for accounts that should not have access to anything (e.g. external test accounts, simulated attackers). Never referenced in any ACL src — exists only to make 'deny by absence' explicit.",
+    "tier": "deny-all"
+  }
+]

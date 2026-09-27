@@ -1,0 +1,206 @@
+{
+	"tagOwners": {
+		"tag:admin-portal": [
+			"autogroup:admin"
+		],
+		"tag:identity-bridge": [
+			"autogroup:admin"
+		],
+		"tag:api-gateway": [
+			"autogroup:admin"
+		],
+		"tag:customer-portal": [
+			"autogroup:admin"
+		],
+		"tag:primary-db": [
+			"autogroup:admin"
+		],
+		"tag:warehouse-db": [
+			"autogroup:admin"
+		],
+		"tag:ml-platform": [
+			"autogroup:admin"
+		],
+		"tag:warehouse-job": [
+			"autogroup:admin"
+		],
+		"tag:observability": [
+			"autogroup:admin"
+		],
+		"tag:eks-gateway": [
+			"autogroup:admin"
+		]
+	},
+	"acls": [
+		{
+			"action": "accept",
+			"src": [
+				"autogroup:admin"
+			],
+			"dst": [
+				"tag:admin-portal:8080",
+				"tag:admin-portal:443"
+			]
+		},
+		{
+			"action": "accept",
+			"src": [
+				"autogroup:admin"
+			],
+			"dst": [
+				"tag:identity-bridge:9090"
+			]
+		},
+		{
+			"action": "accept",
+			"src": [
+				"tag:customer-portal",
+				"autogroup:admin"
+			],
+			"dst": [
+				"tag:api-gateway:8443"
+			]
+		},
+		{
+			"action": "accept",
+			"src": [
+				"autogroup:admin"
+			],
+			"dst": [
+				"tag:customer-portal:9443"
+			]
+		},
+		{
+			"action": "accept",
+			"src": [
+				"tag:identity-bridge",
+				"tag:warehouse-job"
+			],
+			"dst": [
+				"tag:primary-db:5432"
+			]
+		},
+		{
+			"action": "accept",
+			"src": [
+				"tag:warehouse-job",
+				"autogroup:admin"
+			],
+			"dst": [
+				"tag:warehouse-db:5432"
+			]
+		},
+		{
+			"action": "accept",
+			"src": [
+				"autogroup:admin"
+			],
+			"dst": [
+				"tag:ml-platform:8501"
+			]
+		},
+		{
+			"action": "accept",
+			"src": [
+				"autogroup:admin"
+			],
+			"dst": [
+				"tag:observability:9100",
+				"tag:observability:9101"
+			]
+		},
+		{
+			"action": "accept",
+			"src": [
+				"autogroup:admin"
+			],
+			"dst": [
+				"tag:eks-gateway:9100"
+			]
+		},
+		{
+			"action": "accept",
+			"src": [
+				"autogroup:admin"
+			],
+			"dst": [
+				"tag:eks-gateway:9101"
+			]
+		},
+		{
+			"action": "accept",
+			"src": [
+				"autogroup:admin"
+			],
+			"dst": [
+				"tag:eks-gateway:9102"
+			]
+		}
+	],
+	"ssh": [
+		{
+			"action": "accept",
+			"src": [
+				"autogroup:admin"
+			],
+			"dst": [
+				"tag:admin-portal",
+				"tag:identity-bridge",
+				"tag:api-gateway",
+				"tag:customer-portal",
+				"tag:primary-db",
+				"tag:warehouse-db",
+				"tag:ml-platform",
+				"tag:warehouse-job",
+				"tag:observability",
+				"tag:eks-gateway"
+			],
+			"users": [
+				"autogroup:nonroot",
+				"root"
+			]
+		},
+		{
+			"action": "accept",
+			"src": [
+				"autogroup:admin"
+			],
+			"dst": [
+				"tag:admin-portal",
+				"tag:identity-bridge",
+				"tag:api-gateway",
+				"tag:customer-portal"
+			],
+			"users": [
+				"autogroup:nonroot"
+			]
+		},
+		{
+			"action": "accept",
+			"src": [
+				"autogroup:admin"
+			],
+			"dst": [
+				"tag:warehouse-db",
+				"tag:ml-platform",
+				"tag:warehouse-job"
+			],
+			"users": [
+				"autogroup:nonroot"
+			]
+		},
+		{
+			"action": "accept",
+			"src": [
+				"autogroup:admin"
+			],
+			"dst": [
+				"tag:eks-gateway",
+				"tag:observability"
+			],
+			"users": [
+				"autogroup:nonroot"
+			]
+		}
+	]
+}

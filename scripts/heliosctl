@@ -1,0 +1,1253 @@
+#!/usr/bin/env bash
+# ============================================================================
+# heliosctl — lifecycle CLI for the Helios POC
+# ============================================================================
+# Handles start / stop / status / restart / destroy / clean / logs / exec
+# of the POC components: services (10), personas (8), identity,
+# ministack, terraform.
+#
+# Usage:
+#   heliosctl help                       full menu
+#   heliosctl start [components...]      bring up stack (default: all)
+#   heliosctl stop [components...]       stop stack (default: all)
+#   heliosctl restart [components...]    restart (default: all)
+#   heliosctl status                     show status
+#   heliosctl logs <service>             tail -f logs for a service
+#   heliosctl exec <service> <cmd...>    run a command in a container
+#   heliosctl destroy                    nuke EVERYTHING (containers + volumes)
+#   heliosctl clean                      clean artifacts (logs, caches)
+#   heliosctl authkeys                   regenerate auth keys
+#   heliosctl policy                     re-apply policy.hujson
+#   heliosctl verify                     run scripts/verify.sh
+#   heliosctl version                    version info
+#
+# Components (passable to start/stop/restart):
+#   services    the 10 services (admin-portal, identity-bridge, ...)
+#   personas    the 8 personas (diego, rafa, sam, ...)
+#   identity    Authentik (docker-compose.identity.yml)
+#   ministack   MiniStack (docker-compose.ministack.yml)
+#   terraform   apply/destroy terraform state
+#   all         everything (default)
+#
+# Examples:
+#   heliosctl start                       # brings up everything
+#   heliosctl start services              # only the 10 services
+#   heliosctl stop personas               # stops personas but leaves services
+#   heliosctl restart admin-portal        # restarts a single service
+#   heliosctl logs primary-db             # tail logs for the DB
+#   heliosctl exec diego-platform bash    # shell as diego
+# ============================================================================
+
+set -uo pipefail
+
+# ---------- Setup ----------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+cd "$PROJECT_DIR"
+
+# ---------- Colors ----------
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+# ---------- Helpers ----------
+log()   { echo -e "${DIM}$*${NC}"; }
+info()  { echo -e "${CYAN}ℹ${NC} $*"; }
+ok()    { echo -e "${GREEN}✓${NC} $*"; }
+warn()  { echo -e "${YELLOW}⚠${NC} $*"; }
+err()   { echo -e "${RED}✗${NC} $*" >&2; }
+hdr()   { echo -e "\n${BOLD}${BLUE}== $* ==${NC}"; }
+
+# ---------- Stack helpers ----------
+check_docker() {
+    if ! command -v docker >/dev/null 2>&1; then
+        err "docker not found — install docker first"
+        exit 1
+    fi
+    if ! docker info >/dev/null 2>&1; then
+        err "docker daemon not running"
+        exit 1
+    fi
+}
+
+check_env() {
+    if [ ! -f .env ]; then
+        err ".env not found — copy .env.example and fill in the auth keys"
+        info "  cp .env.example .env && \$EDITOR .env"
+        exit 1
+    fi
+}
+
+# ---------- Components ----------
+SERVICES="admin-portal identity-bridge api-gateway customer-portal primary-db warehouse-db ml-platform warehouse-job observability eks-gateway"
+PERSONAS="diego-platform rafa-data sam-sre lena-sre-lead carla-cs tomas-sales nina-auditor eve-attacker"
+
+# Components passable to start/stop/restart (excludes "all")
+COMPONENTS="services personas identity ministack terraform eks ngrok all"
+
+# ---------- docker compose helpers ----------
+compose() {
+    docker compose "$@"
+}
+
+is_running() {
+    local svc="$1"
+    local state
+    # Check both plain name (legacy) and compose-prefixed (tailscale-X-1)
+    state=$(docker ps --filter "name=^${svc}$" --format '{{.State}}' 2>/dev/null)
+    if [ -z "$state" ]; then
+        state=$(docker ps --filter "name=^tailscale-${svc}-1$" --format '{{.State}}' 2>/dev/null)
+    fi
+    if [ -z "$state" ]; then
+        state=$(docker ps --filter "name=${svc}" --format '{{.State}}' 2>/dev/null | head -1)
+    fi
+    [ "$state" = "running" ]
+}
+
+status_of() {
+    local svc="$1"
+    local state
+    state=$(docker ps --all --filter "name=^${svc}$" --format '{{.State}}' 2>/dev/null | head -1)
+    if [ -z "$state" ]; then
+        echo "missing"
+    else
+        echo "$state"
+    fi
+}
+
+# ---------- Main commands ----------
+
+cmd_start() {
+    check_docker
+    check_env
+
+    local targets="${1:-all}"
+    case "$targets" in
+        all)
+            _start_ministack
+            _start_identity
+            _start_ngrok
+            _start_terraform
+            _start_eks
+            _start_services
+            _start_personas
+            ;;
+        services)    _start_services ;;
+        personas)    _start_personas ;;
+        identity)    _start_identity ;;
+        ministack)   _start_ministack ;;
+        terraform)   _start_terraform ;;
+        eks)         _start_eks ;;
+        ngrok)       _start_ngrok ;;
+        *)
+            err "unknown component: $targets"
+            info "valid components: $COMPONENTS"
+            exit 1
+            ;;
+    esac
+
+    hdr "Post-start status"
+    cmd_status
+}
+
+_start_ministack() {
+    hdr "Starting ministack"
+    if docker compose -f ministack/docker-compose.ministack.yml ps 2>/dev/null | grep -q ministack; then
+        warn "ministack is already running"
+        return
+    fi
+    docker compose -f ministack/docker-compose.ministack.yml up -d
+    ok "ministack started (http://localhost:4566)"
+}
+
+_start_identity() {
+    hdr "Starting identity (Authentik)"
+    if docker compose -f docker-compose.identity.yml ps 2>/dev/null | grep -q authentik; then
+        warn "identity is already running"
+        return
+    fi
+    docker compose -f docker-compose.identity.yml up -d
+    ok "identity started (http://localhost:9000)"
+    warn "wait ~30s for Authentik to finish initializing"
+}
+
+_start_terraform() {
+    hdr "Applying terraform"
+    if [ ! -d terraform ]; then
+        warn "terraform/ directory does not exist — skip"
+        return
+    fi
+    if ! command -v terraform >/dev/null 2>&1; then
+        warn "terraform not installed — skip"
+        return
+    fi
+    (cd terraform && terraform init -input=false -no-color 2>&1 | tail -3 && terraform apply -auto-approve -no-color 2>&1 | tail -10)
+    ok "terraform applied"
+}
+
+_start_eks() {
+    hdr "Starting EKS sim (kind)"
+    if [ ! -x eks/scripts/setup.sh ]; then
+        warn "eks/scripts/setup.sh does not exist or is not executable — skip"
+        return
+    fi
+    bash eks/scripts/setup.sh 2>&1 | tail -15
+    ok "EKS sim started"
+}
+
+_start_ngrok() {
+    hdr "Starting ngrok (tunnel to Authentik)"
+    if [ ! -f ngrok/docker-compose.ngrok.yml ]; then
+        warn "ngrok/docker-compose.ngrok.yml does not exist — skip"
+        return
+    fi
+    if [ -z "${NGROK_AUTHTOKEN:-}" ]; then
+        warn "NGROK_AUTHTOKEN is not in .env — ngrok will fail to start"
+        info "get your authtoken from https://dashboard.ngrok.com/get-started/your-authtoken"
+        info "and add it to .env: NGROK_AUTHTOKEN=..."
+    fi
+    docker compose -f ngrok/docker-compose.ngrok.yml up -d 2>&1 | tail -5
+    # Wait for ngrok to assign a URL
+    sleep 5
+    local url
+    url=$(docker logs helios-ngrok 2>&1 | grep -oE 'https://[a-z0-9-]+\.ngrok-free\.app' | head -1 || echo "")
+    if [ -n "$url" ]; then
+        ok "ngrok started — public URL: $url"
+        info "add this URL as AUTHENTIK_HOST in docker-compose.identity.yml"
+        info "and apply: heliosctl restart identity"
+    else
+        ok "ngrok started (check 'docker logs helios-ngrok' for the URL)"
+    fi
+}
+
+_start_services() {
+    hdr "Starting services (10)"
+    docker compose up -d --build
+    ok "10 services started"
+    warn "wait ~60s for magicdns to resolve between sidecars"
+}
+
+_start_personas() {
+    hdr "Starting personas (8)"
+    local missing=()
+    for p in $PERSONAS; do
+        if ! is_running "$p"; then
+            missing+=("$p")
+        fi
+    done
+    if [ ${#missing[@]} -eq 0 ]; then
+        ok "all personas are already running"
+        return
+    fi
+    # docker compose up -d starts only what's missing
+    docker compose up -d "${missing[@]}"
+    ok "personas started: ${missing[*]}"
+}
+
+cmd_stop() {
+    check_docker
+
+    local targets="${1:-all}"
+    case "$targets" in
+        all)
+            _stop_personas
+            _stop_services
+            _stop_eks
+            _stop_ngrok
+            _stop_terraform
+            _stop_identity
+            _stop_ministack
+            ;;
+        services)    _stop_services ;;
+        personas)    _stop_personas ;;
+        identity)    _stop_identity ;;
+        ministack)   _stop_ministack ;;
+        terraform)   _stop_terraform ;;
+        eks)         _stop_eks ;;
+        ngrok)       _stop_ngrok ;;
+        *)
+            err "unknown component: $targets"
+            exit 1
+            ;;
+    esac
+}
+
+_stop_services() {
+    hdr "Stopping services"
+    docker compose stop 2>/dev/null || true
+    ok "services stopped (containers intact)"
+}
+
+_stop_personas() {
+    hdr "Stopping personas"
+    for p in $PERSONAS; do
+        if is_running "$p"; then
+            docker compose stop "$p" 2>/dev/null || true
+        fi
+    done
+    ok "personas stopped"
+}
+
+_stop_identity() {
+    hdr "Stopping identity"
+    if docker compose -f docker-compose.identity.yml ps 2>/dev/null | grep -q authentik; then
+        docker compose -f docker-compose.identity.yml stop 2>/dev/null || true
+        ok "identity stopped"
+    else
+        warn "identity was not running"
+    fi
+}
+
+_stop_ministack() {
+    hdr "Stopping ministack"
+    if docker compose -f ministack/docker-compose.ministack.yml ps 2>/dev/null | grep -q ministack; then
+        docker compose -f ministack/docker-compose.ministack.yml stop 2>/dev/null || true
+        ok "ministack stopped"
+    else
+        warn "ministack was not running"
+    fi
+}
+
+_stop_terraform() {
+    if [ ! -d terraform ]; then return; fi
+    if ! command -v terraform >/dev/null 2>&1; then return; fi
+    hdr "Destroying terraform state"
+    (cd terraform && terraform destroy -auto-approve -no-color 2>&1 | tail -5)
+    ok "terraform destroyed"
+}
+
+_stop_eks() {
+    if [ ! -x eks/scripts/teardown.sh ]; then return; fi
+    hdr "Destroying EKS sim (kind)"
+    bash eks/scripts/teardown.sh 2>&1 | tail -5
+    ok "EKS sim destroyed"
+}
+
+_stop_ngrok() {
+    if [ ! -f ngrok/docker-compose.ngrok.yml ]; then return; fi
+    hdr "Stopping ngrok"
+    if docker ps --filter "name=^helios-ngrok$" --format '{{.Names}}' | grep -q helios-ngrok; then
+        docker compose -f ngrok/docker-compose.ngrok.yml stop 2>&1 | tail -3
+        ok "ngrok stopped"
+    else
+        warn "ngrok was not running"
+    fi
+}
+
+cmd_restart() {
+    check_docker
+    check_env
+
+    local targets="${1:-all}"
+    case "$targets" in
+        all)
+            _restart_all
+            ;;
+        services|personas|identity|ministack)
+            cmd_stop "$targets"
+            cmd_start "$targets"
+            ;;
+        *)
+            # Treat as a single service name
+            if is_running "$targets"; then
+                hdr "Restarting $targets"
+                docker compose restart "$targets"
+                ok "$targets restarted"
+            else
+                err "service '$targets' is not running"
+                exit 1
+            fi
+            ;;
+    esac
+}
+
+_restart_all() {
+    hdr "Restarting the whole stack"
+    cmd_stop all
+    sleep 2
+    cmd_start all
+    ok "stack restarted"
+}
+
+cmd_status() {
+    check_docker
+
+    hdr "Helios POC — status"
+
+    # Services
+    echo
+    echo -e "${BOLD}Services:${NC}"
+    printf "  ${DIM}%-22s %-12s${NC}\n" "NAME" "STATE"
+    for s in $SERVICES; do
+        local st
+        st=$(status_of "$s")
+        case "$st" in
+            running)  printf "  ${GREEN}%-22s${NC} ${GREEN}%-12s${NC}\n" "$s" "$st" ;;
+            exited|dead)  printf "  ${RED}%-22s${NC} ${RED}%-12s${NC}\n" "$s" "$st" ;;
+            *)  printf "  ${DIM}%-22s %-12s${NC}\n" "$s" "$st" ;;
+        esac
+    done
+
+    # Personas
+    echo
+    echo -e "${BOLD}Personas:${NC}"
+    printf "  ${DIM}%-22s %-12s${NC}\n" "NAME" "STATE"
+    for p in $PERSONAS; do
+        local st
+        st=$(status_of "$p")
+        case "$st" in
+            running)  printf "  ${GREEN}%-22s${NC} ${GREEN}%-12s${NC}\n" "$p" "$st" ;;
+            exited|dead)  printf "  ${RED}%-22s${NC} ${RED}%-12s${NC}\n" "$p" "$st" ;;
+            *)  printf "  ${DIM}%-22s %-12s${NC}\n" "$p" "$st" ;;
+        esac
+    done
+
+    # Identity
+    echo
+    echo -e "${BOLD}Identity (Authentik):${NC}"
+    local id_state
+    id_state=$(docker ps --filter "name=^authentik-server$" --format '{{.State}}' 2>/dev/null | head -1)
+    if [ "$id_state" = "running" ]; then
+        echo -e "  ${GREEN}running${NC} → http://localhost:9000"
+    else
+        echo -e "  ${DIM}not running${NC} (heliosctl start identity)"
+    fi
+
+    # Ministack
+    echo
+    echo -e "${BOLD}Ministack:${NC}"
+    local ms_state
+    ms_state=$(docker ps --filter "name=^ministack$" --format '{{.State}}' 2>/dev/null | head -1)
+    if [ "$ms_state" = "running" ]; then
+        echo -e "  ${GREEN}running${NC} → http://localhost:4566"
+    else
+        echo -e "  ${DIM}not running${NC} (heliosctl start ministack)"
+    fi
+
+    # Terraform
+    echo
+    echo -e "${BOLD}Terraform:${NC}"
+    if [ -d terraform ] && [ -f terraform/terraform.tfstate ]; then
+        echo -e "  ${GREEN}state present${NC} (terraform show for details)"
+    elif [ -d terraform ]; then
+        echo -e "  ${YELLOW}not initialized${NC} (heliosctl start terraform)"
+    else
+        echo -e "  ${DIM}no terraform dir${NC}"
+    fi
+
+    # EKS sim (kind)
+    echo
+    echo -e "${BOLD}EKS sim (kind):${NC}"
+    if command -v kind >/dev/null 2>&1; then
+        if kind get clusters 2>/dev/null | grep -q "helios-eks-sim"; then
+            echo -e "  ${GREEN}cluster helios-eks-sim running${NC}"
+            kubectl --context=kind-helios-eks-sim get nodes 2>/dev/null | head -5 | tail -3 | sed 's/^/    /' || true
+        else
+            echo -e "  ${DIM}not created${NC} (heliosctl start eks)"
+        fi
+    else
+        echo -e "  ${DIM}kind not installed${NC}"
+    fi
+
+    # ngrok
+    echo
+    echo -e "${BOLD}ngrok:${NC}"
+    if docker ps --filter "name=^helios-ngrok$" --format '{{.Names}}' 2>/dev/null | grep -q helios-ngrok; then
+        local url
+        url=$(docker logs helios-ngrok 2>&1 | grep -oE 'https://[a-z0-9-]+\.ngrok-free\.app' | head -1)
+        echo -e "  ${GREEN}running${NC} → ${url:-'(check docker logs helios-ngrok)'}"
+    else
+        echo -e "  ${DIM}not running${NC} (heliosctl start ngrok)"
+    fi
+
+    # Summary
+    echo
+    local total=0
+    local running=0
+    for x in $SERVICES $PERSONAS; do
+        total=$((total+1))
+        if is_running "$x"; then running=$((running+1)); fi
+    done
+    echo -e "${BOLD}Summary:${NC} ${running}/${total} nodes running on the tailnet"
+}
+
+cmd_logs() {
+    check_docker
+    if [ $# -eq 0 ]; then
+        err "usage: heliosctl logs <service>"
+        info "available services:"
+        echo "$SERVICES $PERSONAS" | tr ' ' '\n' | sort -u | sed 's/^/  - /'
+        exit 1
+    fi
+    docker compose logs -f --tail=100 "$1"
+}
+
+cmd_exec() {
+    check_docker
+    if [ $# -lt 2 ]; then
+        err "usage: heliosctl exec <service> <command...>"
+        exit 1
+    fi
+    local service="$1"
+    shift
+    docker compose exec "$service" "$@"
+}
+
+cmd_destroy() {
+    check_docker
+    warn "this will:"
+    echo "  - stop and remove POC containers"
+    echo "  - remove volumes (DB data, tailscale state, etc.)"
+    echo "  - destroy terraform state (if it exists)"
+    echo "  - keep .env and policy.hujson (for re-bootstrap)"
+    if [ "${YES:-}" != "1" ]; then
+        read -rp "confirm? (y/N) " ans
+        [ "$ans" = "y" ] || [ "$ans" = "Y" ] || { info "cancelled"; return; }
+    fi
+
+    hdr "Destroy: docker compose"
+    docker compose down -v --remove-orphans 2>&1 | tail -3
+    ok "services + personas removed"
+
+    if [ -f docker-compose.identity.yml ]; then
+        hdr "Destroy: identity"
+        docker compose -f docker-compose.identity.yml down -v --remove-orphans 2>&1 | tail -3
+        ok "identity removed"
+    fi
+
+    if [ -f ministack/docker-compose.ministack.yml ]; then
+        hdr "Destroy: ministack"
+        docker compose -f ministack/docker-compose.ministack.yml down -v --remove-orphans 2>&1 | tail -3
+        ok "ministack removed"
+    fi
+
+    cmd_clean
+
+    if [ -d terraform ] && command -v terraform >/dev/null 2>&1; then
+        hdr "Destroy: terraform"
+        (cd terraform && terraform destroy -auto-approve -no-color 2>&1 | tail -3)
+        ok "terraform destroyed"
+    fi
+
+    echo
+    ok "POC destroyed. To re-bootstrap: heliosctl start"
+}
+
+cmd_clean() {
+    hdr "Cleaning artifacts"
+
+    # Logs from the original POC
+    if [ -d "$SCRIPT_DIR/../control_logs" ]; then
+        rm -rf "$SCRIPT_DIR/../control_logs"
+        ok "control_logs/ removed"
+    fi
+
+    # Tailnet logs (if any left)
+    if [ -d "$SCRIPT_DIR/../logs" ]; then
+        rm -rf "$SCRIPT_DIR/../logs"
+        ok "logs/ removed"
+    fi
+
+    # MapResponses dumps (if any)
+    find "$PROJECT_DIR" -type d -name "*mapresponses*" -exec rm -rf {} + 2>/dev/null
+    find "$PROJECT_DIR" -type d -name "control_logs" -exec rm -rf {} + 2>/dev/null
+
+    # DB snapshots (sqlite dumps a test may have left)
+    find "$PROJECT_DIR" -type f -name "*.db" -not -path "*/.git/*" -delete 2>/dev/null
+
+    # Limit docker logs size
+    docker system prune -f --filter "until=24h" 2>&1 | tail -3 || true
+
+    ok "cleanup complete"
+}
+
+cmd_authkeys() {
+    if [ -f tools/tsctl.py ] || [ -f ../../tools/tsctl.py ]; then
+        local tsctl_path="tools/tsctl.py"
+        [ ! -f "$tsctl_path" ] && tsctl_path="../../tools/tsctl.py"
+        info "regenerating auth keys via tsctl.py"
+        TAGS=(admin-portal identity-bridge api-gateway customer-portal \
+              primary-db warehouse-db ml-platform warehouse-job observability eks-gateway)
+        for tag in "${TAGS[@]}"; do
+            python3 "$tsctl_path" authkey create --tag "tag:$tag" --reusable --days 30 2>&1 | tail -3
+        done
+        for persona in diego rafa sam lena carla tomas nina eve; do
+            python3 "$tsctl_path" authkey create --reusable --days 30 2>&1 | tail -3
+        done
+    elif [ -f tools/hsctl.py ] || [ -f ../../tools/hsctl.py ]; then
+        local hsctl_path="tools/hsctl.py"
+        [ ! -f "$hsctl_path" ] && hsctl_path="../../tools/hsctl.py"
+        info "regenerating auth keys via hsctl.py (Headscale)"
+        TAGS=(admin-portal identity-bridge api-gateway customer-portal \
+              primary-db warehouse-db ml-platform warehouse-job observability eks-gateway)
+        python3 "$hsctl_path" user create helios-admin || true
+        for tag in "${TAGS[@]}"; do
+            python3 "$hsctl_path" authkey create --user helios-admin --tag "tag:$tag" --reusable --days 30 2>&1 | tail -3
+        done
+        for persona in diego rafa sam lena carla tomas nina eve; do
+            python3 "$hsctl_path" authkey create --user helios-admin --reusable --days 30 2>&1 | tail -3
+        done
+    else
+        err "could not find tools/tsctl.py nor tools/hsctl.py"
+        exit 1
+    fi
+    ok "auth keys regenerated (review the output and update .env)"
+}
+
+cmd_policy() {
+    if [ -f tools/tsctl.py ] || [ -f ../../tools/tsctl.py ]; then
+        local tsctl_path="tools/tsctl.py"
+        [ ! -f "$tsctl_path" ] && tsctl_path="../../tools/tsctl.py"
+        info "applying policy via tsctl.py"
+        if [ -f acl/policy-poc-no-groups.hujson ]; then
+            python3 "$tsctl_path" policy set acl/policy-poc-no-groups.hujson
+        else
+            python3 "$tsctl_path" policy set acl/policy.hujson
+        fi
+    elif [ -f tools/hsctl.py ] || [ -f ../../tools/hsctl.py ]; then
+        local hsctl_path="tools/hsctl.py"
+        [ ! -f "$hsctl_path" ] && hsctl_path="../../tools/hsctl.py"
+        info "applying policy via hsctl.py"
+        if [ -f acl/policy-poc-no-groups.hujson ]; then
+            python3 "$hsctl_path" policy set acl/policy-poc-no-groups.hujson
+        else
+            python3 "$hsctl_path" policy set acl/policy.hujson
+        fi
+    else
+        err "could not find CLI tools. Apply manually with:"
+        info "  tsctl.py policy set acl/policy.hujson"
+        exit 1
+    fi
+}
+
+cmd_verify() {
+    if [ -f scripts/verify.sh ]; then
+        hdr "Running scripts/verify.sh"
+        bash scripts/verify.sh
+    else
+        err "scripts/verify.sh does not exist"
+        exit 1
+    fi
+}
+
+cmd_help() {
+    cat <<EOF
+${BOLD}${CYAN}heliosctl${NC} — lifecycle CLI for the Helios POC
+
+${BOLD}Usage:${NC}
+  heliosctl <command> [args]
+
+${BOLD}Main commands:${NC}
+  ${GREEN}start${NC} [comp]              bring up stack (default: all)
+  ${GREEN}stop${NC} [comp]               stop stack (default: all)
+  ${GREEN}restart${NC} [comp|service]    restart
+  ${GREEN}status${NC}                    show status of all components
+  ${GREEN}logs${NC} <service>           tail -f logs
+  ${GREEN}exec${NC} <service> <cmd...>   run a command in a container
+  ${GREEN}destroy${NC}                   remove EVERYTHING (containers, volumes, tf state)
+  ${GREEN}clean${NC}                     clean artifacts (logs), keep state
+
+${BOLD}Auxiliary commands:${NC}
+  ${GREEN}authkeys${NC}                  regenerate auth keys via tsctl/hsctl
+  ${GREEN}policy${NC}                    re-apply policy.hujson
+  ${GREEN}verify${NC}                    run scripts/verify.sh
+  ${GREEN}validate${NC}                  validate end-to-end (policy + connectivity + tokens)
+  ${GREEN}version${NC}                   version info
+
+${BOLD}Dynamic CRUD (add/remove components):${NC}
+  ${GREEN}add service <name> [--tag]${NC}    add a new service
+  ${GREEN}add persona <name>${NC}             add a new persona (user-owned)
+  ${GREEN}remove service <name>${NC}          remove a service
+  ${GREEN}remove persona <name>${NC}          remove a persona
+
+${BOLD}Components (for start/stop/restart):${NC}
+  ${YELLOW}services${NC}    the 10 services (admin-portal, identity-bridge, ...)
+  ${YELLOW}personas${NC}    the 8 personas (diego, rafa, sam, ...)
+  ${YELLOW}identity${NC}    Authentik (docker-compose.identity.yml)
+  ${YELLOW}ministack${NC}   MiniStack simulating AWS (docker-compose.ministack.yml)
+  ${YELLOW}terraform${NC}   terraform state (apply/destroy)
+  ${YELLOW}eks${NC}         EKS-like cluster via kind (3 nodes + RBAC + workloads)
+  ${YELLOW}ngrok${NC}       HTTPS tunnel to Authentik (for Tailscale SSO)
+  ${YELLOW}all${NC}         everything (default)
+
+${BOLD}For restart, you can also pass a single service:${NC}
+  heliosctl restart admin-portal    # restarts only admin-portal
+  heliosctl restart primary-db      # restarts only primary-db
+
+${BOLD}Examples:${NC}
+  heliosctl start                            # brings up everything
+  heliosctl start services                   # only the 10 services
+  heliosctl stop personas                    # stops personas but leaves services
+  heliosctl restart admin-portal             # restarts a single service
+  heliosctl logs primary-db                  # tail logs for the DB
+  heliosctl exec diego-platform bash         # shell as diego
+  heliosctl add persona noah-intern          # add a persona
+  heliosctl add service new-svc --tag tag:new-svc  # add a service
+  heliosctl remove persona eve-attacker      # remove a persona
+  heliosctl validate                         # validate end-to-end
+  heliosctl status                           # see current status
+  heliosctl destroy                          # nuke EVERYTHING (asks for confirmation)
+EOF
+}
+
+cmd_version() {
+    echo "heliosctl 1.0.0"
+    echo "Helios POC lifecycle CLI"
+    echo "Project dir: $PROJECT_DIR"
+    if [ -f docker-compose.yml ]; then
+        echo "Stack:       $(grep -c '^  [a-z]' docker-compose.yml || echo ?) services declared"
+    fi
+}
+
+# ============================================================================
+# ADD / REMOVE — dynamic component management
+# ============================================================================
+# These functions modify docker-compose.yml to add/remove services
+# and personas. They produce commit-friendly diffs (preserve formatting).
+# ============================================================================
+
+_add_to_compose() {
+    # Append YAML block to docker-compose.yml before "volumes:" or "networks:"
+    # Usage: _add_to_compose <block_yaml>
+    local block="$1"
+    local file="$PROJECT_DIR/docker-compose.yml"
+    if [ ! -f "$file" ]; then
+        err "docker-compose.yml does not exist"
+        return 1
+    fi
+    # Find the last line before "volumes:" or "networks:"
+    local insert_at
+    insert_at=$(grep -n "^volumes:\|^networks:" "$file" | head -1 | cut -d: -f1)
+    if [ -z "$insert_at" ]; then
+        # If no volumes/networks, append at the end
+        echo "" >> "$file"
+        echo "$block" >> "$file"
+    else
+        # Insert before the volumes:/networks: line
+        local tmp
+        tmp=$(mktemp)
+        head -n $((insert_at - 1)) "$file" > "$tmp"
+        echo "" >> "$tmp"
+        echo "$block" >> "$tmp"
+        echo "" >> "$tmp"
+        tail -n +$insert_at "$file" >> "$tmp"
+        mv "$tmp" "$file"
+    fi
+}
+
+_add_volume() {
+    # Append volume name at the end of the volumes: section
+    local vol_name="$1"
+    sed -i "/^volumes:/a\\
+  $vol_name:" "$PROJECT_DIR/docker-compose.yml"
+}
+
+_add_network() {
+    # Append network name at the end of the networks: section
+    local net_name="$1"
+    sed -i "/^networks:/a\\
+  $net_name:" "$PROJECT_DIR/docker-compose.yml"
+}
+
+cmd_add() {
+    check_docker
+    check_env
+
+    local type="${1:-}"
+    if [ -z "$type" ]; then
+        err "usage: heliosctl add <service|persona> <name> [options]"
+        exit 1
+    fi
+    shift
+    local name="${1:-}"
+    if [ -z "$name" ]; then
+        err "missing name"
+        exit 1
+    fi
+    shift
+
+    case "$type" in
+        service|services)   cmd_add_service "$name" "$@" ;;
+        persona|personas)   cmd_add_persona "$name" ;;
+        *)
+            err "unknown type: $type (use 'service' or 'persona')"
+            exit 1
+            ;;
+    esac
+}
+
+cmd_add_service() {
+    local name="$1"
+    shift
+    local tag=""
+    local port=""
+
+    # Parse flags
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --tag) tag="$2"; shift 2 ;;
+            --port) port="$2"; shift 2 ;;
+            *) err "unknown flag: $1"; exit 1 ;;
+        esac
+    done
+
+    if [ -z "$tag" ]; then
+        tag="tag:${name//_/-}"  # default: tag:name-with-dashes
+    fi
+
+    hdr "Adding service: $name (tag: $tag)"
+
+    # 1. Verify it doesn't already exist
+    if grep -q "^  $name:" "$PROJECT_DIR/docker-compose.yml"; then
+        err "service $name already exists in docker-compose.yml"
+        exit 1
+    fi
+
+    # 2. Verify the apps/<name>/ directory exists
+    if [ ! -d "$PROJECT_DIR/apps/$name" ]; then
+        warn "apps/$name/ does not exist — create the directory with Dockerfile + app.py"
+        info "minimum structure:"
+        info "  apps/$name/Dockerfile"
+        info "  apps/$name/app.py"
+        info "  apps/$name/requirements.txt"
+    fi
+
+    # 3. Generate the YAML block
+    local ts_var="TS_AUTHKEY_$(echo $name | tr '[:lower:]' '[:upper:]' | tr '-' '_')"
+    local block
+    block=$(cat <<EOF
+
+  ts-$name:
+    <<: *ts-common
+    hostname: $name
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: \${$ts_var}
+      TS_HOSTNAME: $name
+      TS_TAGS: "$tag"
+    volumes:
+      - ts-$name-state:/var/lib/tailscale
+    networks:
+      - net-$name
+
+  $name:
+    build: ./apps/$name
+    network_mode: "service:ts-$name"
+    depends_on:
+      - ts-$name
+    restart: unless-stopped
+EOF
+)
+
+    # 4. Append to docker-compose.yml
+    _add_to_compose "$block"
+    _add_volume "ts-$name-state"
+    _add_network "net-$name"
+    ok "docker-compose.yml updated"
+
+    # 5. Generate auth key
+    local key=""
+    if [ -f "$PROJECT_DIR/tools/tsctl.py" ] || [ -f "$PROJECT_DIR/../../tools/tsctl.py" ]; then
+        local tsctl="tools/tsctl.py"
+        [ ! -f "$PROJECT_DIR/$tsctl" ] && tsctl="../../tools/tsctl.py"
+        info "generating auth key via tsctl..."
+        key=$(python3 "$PROJECT_DIR/$tsctl" authkey create --tag "$tag" --reusable --days 30 2>&1 | grep -E "^  tskey-" | tr -d ' ')
+    fi
+
+    # 6. Add to .env
+    if [ -n "$key" ]; then
+        echo "$ts_var=$key" >> "$PROJECT_DIR/.env"
+        ok "$ts_var added to .env"
+    else
+        warn "could not generate auth key automatically"
+        info "add it manually to .env: $ts_var=tskey-auth-..."
+    fi
+
+    # 7. Reminder to add to policy.hujson
+    info "don't forget to add 'tag:${name//_/-}' to acl/policy.hujson"
+    info "  (in tagOwners and in the applicable acl rules)"
+
+    ok "service '$name' added to the POC"
+    info "next: heliosctl restart services"
+}
+
+cmd_add_persona() {
+    local name="$1"
+
+    hdr "Adding persona: $name"
+
+    # 1. Verify it doesn't already exist
+    if grep -q "^  ts-$name:" "$PROJECT_DIR/docker-compose.yml"; then
+        err "persona $name already exists in docker-compose.yml"
+        exit 1
+    fi
+
+    # 2. Generate YAML block
+    local ts_var="TS_AUTHKEY_$(echo $name | tr '[:lower:]' '[:upper:]' | tr '-' '_')"
+    local block
+    block=$(cat <<EOF
+
+  ts-$name:
+    <<: *ts-common
+    hostname: $name
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: \${$ts_var}
+      TS_HOSTNAME: $name
+    volumes:
+      - ts-$name-state:/var/lib/tailscale
+    networks:
+      - net-$name
+
+  $name:
+    image: nicolaka/netshoot:latest
+    network_mode: "service:ts-$name"
+    depends_on:
+      - ts-$name
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+EOF
+)
+
+    # 3. Append
+    _add_to_compose "$block"
+    _add_volume "ts-$name-state"
+    _add_network "net-$name"
+    ok "docker-compose.yml updated"
+
+    # 4. Generate auth key
+    local key=""
+    if [ -f "$PROJECT_DIR/tools/tsctl.py" ] || [ -f "$PROJECT_DIR/../../tools/tsctl.py" ]; then
+        local tsctl="tools/tsctl.py"
+        [ ! -f "$PROJECT_DIR/$tsctl" ] && tsctl="../../tools/tsctl.py"
+        info "generating auth key via tsctl (no tag = user-owned)..."
+        key=$(python3 "$PROJECT_DIR/$tsctl" authkey create --reusable --days 30 2>&1 | grep -E "^  tskey-" | tr -d ' ')
+    fi
+
+    if [ -n "$key" ]; then
+        echo "$ts_var=$key" >> "$PROJECT_DIR/.env"
+        ok "$ts_var added to .env"
+    else
+        warn "could not generate auth key automatically"
+        info "add it manually to .env: $ts_var=tskey-auth-..."
+    fi
+
+    info "don't forget to add it to policy.hujson if you need specific rules for this persona"
+    ok "persona '$name' added to the POC"
+    info "next: heliosctl restart personas"
+}
+
+cmd_remove() {
+    local type="${1:-}"
+    if [ -z "$type" ]; then
+        err "usage: heliosctl remove <service|persona> <name>"
+        exit 1
+    fi
+    shift
+    local name="${1:-}"
+    if [ -z "$name" ]; then
+        err "missing name"
+        exit 1
+    fi
+
+    case "$type" in
+        service|services)   cmd_remove_service "$name" ;;
+        persona|personas)   cmd_remove_persona "$name" ;;
+        *)
+            err "unknown type: $type (use 'service' or 'persona')"
+            exit 1
+            ;;
+    esac
+}
+
+cmd_remove_service() {
+    local name="$1"
+
+    if [ ! -f "$PROJECT_DIR/docker-compose.yml" ]; then
+        err "docker-compose.yml does not exist"
+        exit 1
+    fi
+
+    hdr "Removing service: $name"
+
+    if ! grep -q "^  $name:" "$PROJECT_DIR/docker-compose.yml"; then
+        err "service $name is not in docker-compose.yml"
+        exit 1
+    fi
+
+    # Confirm
+    if [ "${YES:-}" != "1" ]; then
+        warn "this will:"
+        echo "  - stop and remove $name + ts-$name containers"
+        echo "  - remove the block from docker-compose.yml"
+        echo "  - remove the ts-$name-state volume"
+        echo "  - remove the net-$name network"
+        echo "  - leave the TS_AUTHKEY entry in .env (manual cleanup)"
+        read -rp "confirm? (y/N) " ans
+        [ "$ans" = "y" ] || [ "$ans" = "Y" ] || { info "cancelled"; return; }
+    fi
+
+    # 1. Stop containers
+    docker compose stop "$name" "ts-$name" 2>/dev/null || true
+    docker compose rm -f "$name" "ts-$name" 2>/dev/null || true
+
+    # 2. Remove blocks from docker-compose.yml
+    # Pattern: from "  <name>:" to the next "  other-name:" or "volumes:" or "networks:"
+    python3 <<EOF
+import re
+with open("$PROJECT_DIR/docker-compose.yml") as f:
+    content = f.read()
+
+# Remove the service block and the ts-sidecar
+for svc in ["$name", "ts-$name"]:
+    pattern = rf'^  {re.escape(svc)}:\n(?:    .*\n)+'
+    content = re.sub(pattern, '', content, flags=re.MULTILINE)
+
+# Remove volumes and networks
+content = re.sub(rf'^  ts-$name-state:\n', '', content, flags=re.MULTILINE)
+content = re.sub(rf'^  net-$name:\n', '', content, flags=re.MULTILINE)
+
+with open("$PROJECT_DIR/docker-compose.yml", 'w') as f:
+    f.write(content)
+
+print("  ✓ docker-compose.yml updated")
+EOF
+
+    # 3. Remove volume and network from docker
+    docker volume rm "ts-${name}-state" 2>/dev/null || true
+    docker network rm "net-${name}" 2>/dev/null || true
+
+    ok "service '$name' removed"
+    info "additional cleanup:"
+    info "  - delete TS_AUTHKEY_${name^^} from .env"
+    info "  - delete references to '$name' in acl/policy.hujson"
+}
+
+cmd_remove_persona() {
+    local name="$1"
+
+    if [ ! -f "$PROJECT_DIR/docker-compose.yml" ]; then
+        err "docker-compose.yml does not exist"
+        exit 1
+    fi
+
+    hdr "Removing persona: $name"
+
+    if ! grep -q "^  $name:" "$PROJECT_DIR/docker-compose.yml"; then
+        err "persona $name is not in docker-compose.yml"
+        exit 1
+    fi
+
+    # Confirm
+    if [ "${YES:-}" != "1" ]; then
+        warn "this will:"
+        echo "  - stop and remove $name + ts-$name containers"
+        echo "  - remove from docker-compose.yml"
+        read -rp "confirm? (y/N) " ans
+        [ "$ans" = "y" ] || [ "$ans" = "Y" ] || { info "cancelled"; return; }
+    fi
+
+    # Similar to service
+    docker compose stop "$name" "ts-$name" 2>/dev/null || true
+    docker compose rm -f "$name" "ts-$name" 2>/dev/null || true
+
+    python3 <<EOF
+import re
+with open("$PROJECT_DIR/docker-compose.yml") as f:
+    content = f.read()
+
+for svc in ["$name", "ts-$name"]:
+    pattern = rf'^  {re.escape(svc)}:\n(?:    .*\n)+'
+    content = re.sub(pattern, '', content, flags=re.MULTILINE)
+
+content = re.sub(rf'^  ts-$name-state:\n', '', content, flags=re.MULTILINE)
+content = re.sub(rf'^  net-$name:\n', '', content, flags=re.MULTILINE)
+
+with open("$PROJECT_DIR/docker-compose.yml", 'w') as f:
+    f.write(content)
+EOF
+
+    docker volume rm "ts-${name}-state" 2>/dev/null || true
+    docker network rm "net-${name}" 2>/dev/null || true
+
+    ok "persona '$name' removed"
+    info "additional cleanup: delete TS_AUTHKEY_${name^^} from .env"
+}
+
+# ============================================================================
+# VALIDATE — end-to-end sanity checks
+# ============================================================================
+
+cmd_validate() {
+    check_docker
+
+    hdr "POC end-to-end validation"
+
+    local failed=0
+
+    # 1. .env exists and has auth keys
+    echo
+    info "1. Check .env"
+    if [ ! -f .env ]; then
+        err "  .env does not exist"
+        failed=$((failed+1))
+    else
+        local keys
+        keys=$(grep -c "^TS_AUTHKEY_" .env)
+        if [ "$keys" -lt 10 ]; then
+            err "  .env has $keys auth keys (expected ≥10)"
+            failed=$((failed+1))
+        else
+            ok "  .env has $keys auth keys"
+        fi
+    fi
+
+    # 2. docker compose validates
+    echo
+    info "2. Check docker-compose.yml"
+    if docker compose config --quiet 2>/dev/null; then
+        ok "  docker-compose.yml is valid"
+    else
+        err "  docker-compose.yml is invalid:"
+        docker compose config 2>&1 | head -5
+        failed=$((failed+1))
+    fi
+
+    # 3. Apps exist (Dockerfile if they build, or base image directly)
+    echo
+    info "3. Check apps/ have Dockerfile OR base image"
+    local missing=()
+    for app in $SERVICES; do
+        # If it uses a pre-built image (e.g. postgres:16), no Dockerfile needed
+        if grep -A 6 "^  $app:" docker-compose.yml | grep -q "^    image:"; then
+            continue
+        fi
+        # If it uses build, Dockerfile is required
+        if [ ! -f "apps/$app/Dockerfile" ]; then
+            missing+=("$app")
+        fi
+    done
+    if [ ${#missing[@]} -eq 0 ]; then
+        ok "  all apps have a Dockerfile or base image"
+    else
+        err "  missing Dockerfile in: ${missing[*]}"
+        failed=$((failed+1))
+    fi
+
+    # 4. Policy.hujson is valid JSONC
+    echo
+    info "4. Check acl/policy.hujson (JSONC)"
+    python3 -c "
+import re, json, sys
+content = open('acl/policy.hujson').read()
+content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+content = re.sub(r'//[^\n]*', '', content)
+try:
+    obj = json.loads(content)
+    print('  ✓ valid JSONC:', len(obj.get('acls', [])), 'acls,', len(obj.get('ssh', [])), 'ssh,', len(obj.get('tagOwners', {})), 'tags')
+except json.JSONDecodeError as e:
+    print('  ✗ invalid JSON:', e)
+    sys.exit(1)
+" || { err "  policy.hujson is invalid"; failed=$((failed+1)); }
+
+    # 5. Containers running (if started)
+    echo
+    info "5. Check running containers"
+    local running=0
+    local expected=$(( $(echo "$SERVICES" | wc -w) + $(echo "$PERSONAS" | wc -w) ))
+    for x in $SERVICES $PERSONAS; do
+        if is_running "$x"; then
+            running=$((running+1))
+        fi
+    done
+    if [ "$running" -eq 0 ]; then
+        warn "  no containers running (probably you haven't started the stack yet)"
+        info "  run: heliosctl start all"
+    elif [ "$running" -eq "$expected" ]; then
+        ok "  $running/$expected containers running"
+    elif [ "$running" -ge 1 ]; then
+        warn "  $running/$expected containers running (some missing — sandbox pool limit?)"
+        info "  run: heliosctl restart all (may fail due to docker network pool)"
+        # partial state does not count as failed (sandbox constraint)
+    else
+        warn "  $running/$expected containers running"
+        failed=$((failed+1))
+    fi
+
+    # 6. Tailscale API access
+    echo
+    info "6. Check Tailscale API access"
+    local TSCTL=""
+    if [ -f "$PROJECT_DIR/../tools/tsctl.py" ]; then
+        TSCTL="$PROJECT_DIR/../tools/tsctl.py"
+    elif [ -f "$PROJECT_DIR/tools/tsctl.py" ]; then
+        TSCTL="$PROJECT_DIR/tools/tsctl.py"
+    elif [ -f "$PROJECT_DIR/../../tools/tsctl.py" ]; then
+        TSCTL="$PROJECT_DIR/../../tools/tsctl.py"
+    fi
+    if [ -n "${TAILSCALE_API_KEY:-}" ] && [ -n "$TSCTL" ]; then
+        if python3 "$TSCTL" login-info 2>&1 | grep -q "✓ connected"; then
+            ok "  Tailscale API reachable"
+        else
+            warn "  Tailscale API not responding — check TAILSCALE_API_KEY"
+            failed=$((failed+1))
+        fi
+    else
+        info "  TAILSCALE_API_KEY not set — skip"
+    fi
+
+    # 7. Check ngrok if running
+    echo
+    info "7. Check ngrok"
+    if docker ps --filter "name=^helios-ngrok$" --format '{{.Names}}' 2>/dev/null | grep -q helios-ngrok; then
+        local ngrok_url
+        # Accepts both .ngrok-free.app (legacy) and .ngrok-free.dev (current)
+        ngrok_url=$(docker logs helios-ngrok 2>&1 | grep -oE 'https://[a-z0-9-]+\.ngrok-free\.(app|dev)' | head -1)
+        if [ -n "$ngrok_url" ]; then
+            ok "  ngrok running: $ngrok_url"
+        else
+            warn "  ngrok running but URL not detected (check logs)"
+        fi
+    else
+        info "  ngrok is not running (skip)"
+    fi
+
+    # Summary
+    echo
+    if [ "$failed" -eq 0 ]; then
+        ok "✓ Validation OK — POC ready to use"
+    else
+        err "✗ Validation with $failed failure(s) — review above"
+        return 1
+    fi
+}
+
+# ---------- Dispatch ----------
+case "${1:-help}" in
+    start)     shift; cmd_start "$@" ;;
+    stop)      shift; cmd_stop "$@" ;;
+    restart)   shift; cmd_restart "$@" ;;
+    status|st) cmd_status ;;
+    logs)      shift; cmd_logs "$@" ;;
+    exec)      shift; cmd_exec "$@" ;;
+    destroy)   shift; cmd_destroy "$@" ;;
+    clean)     cmd_clean ;;
+    authkeys)  cmd_authkeys ;;
+    policy)    cmd_policy ;;
+    verify)    cmd_verify ;;
+    validate)  cmd_validate ;;
+    add)       shift; cmd_add "$@" ;;
+    remove|rm) shift; cmd_remove "$@" ;;
+    version|-v|--version) cmd_version ;;
+    help|-h|--help) cmd_help ;;
+    *)
+        err "unknown command: $1"
+        info "run 'heliosctl help' to see the menu"
+        exit 1
+        ;;
+esac

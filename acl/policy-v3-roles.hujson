@@ -1,0 +1,230 @@
+// Helios POC — ACL policy v3 (matriz de roles refinada)
+// =============================================================================
+// Esta versión agrega grupos específicos para los roles pedidos:
+//   - group:viewers@helios.example       (read-only cross-cutting)
+//   - group:externals@helios.example     (access muy limitado, con auditor)
+//   - group:admins@helios.example        (admin del tailnet, full access)
+//
+// Estos se SUMAN a los grupos de v2 (platform-eng, data-eng, sre, etc.).
+//
+// Mapping a RBAC K8s:
+//   - viewers    → role:k8s-viewer
+//   - platform-eng → role:k8s-editor (dev/staging)
+//   - sre-lead   → role:k8s-admin
+//   - externals  → DENY (no tocan K8s)
+//
+// Pegar en Tailscale admin console → Access Controls
+// =============================================================================
+
+{
+  "tagOwners": {
+    "tag:admin-portal":     ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:identity-bridge":  ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:api-gateway":      ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:customer-portal":  ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:primary-db":       ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:warehouse-db":     ["autogroup:admin", "group:data-eng@helios.example"],
+    "tag:ml-platform":      ["autogroup:admin", "group:data-eng@helios.example"],
+    "tag:warehouse-job":    ["autogroup:admin", "group:data-eng@helios.example"],
+    "tag:observability":    ["autogroup:admin", "group:sre@helios.example", "group:sre-lead@helios.example"],
+    "tag:eks-gateway":      ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:eks-viewer":       ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:eks-editor":       ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:eks-admin":        ["autogroup:admin", "group:sre-lead@helios.example"]
+  },
+
+  "acls": [
+    // =====================================================================
+    // ADMIN — full access (sin restricciones)
+    // =====================================================================
+    {
+      "action": "accept",
+      "src":    ["group:admins@helios.example", "autogroup:admin"],
+      "dst":    ["*:*"]
+    },
+
+    // =====================================================================
+    // VIEWERS — read-only cross-cutting
+    // =====================================================================
+    // Los viewers pueden ver:
+    //   - observability (metrics + logs — read-only)
+    //   - EKS metrics (puerto 9100)
+    //   - ml-platform (read endpoints)
+    //   - customer-portal (read-only)
+    // NO pueden:
+    //   - tocar DBs directamente
+    //   - hacer exec en pods
+    //   - ejecutar SSH a ningún servicio
+    //   - acceder a admin-portal
+
+    {
+      "action": "accept",
+      "src":    ["group:viewers@helios.example"],
+      "dst":    [
+        "tag:observability:9100",
+        "tag:observability:9101",
+        "tag:eks-gateway:9100",
+        "tag:ml-platform:8501",
+        "tag:customer-portal:9443"
+      ]
+    },
+
+    // =====================================================================
+    // EXTERNALS — acceso MUY limitado (solo lo que necesitan ver)
+    // =====================================================================
+    // Externals son clientes, partners, auditores externos con cuenta.
+    // Solo ven: customer-portal (su propia data) + api-gateway (status público)
+    // NO ven: internals, DBs, EKS, observability
+
+    {
+      "action": "accept",
+      "src":    ["group:externals@helios.example"],
+      "dst":    [
+        "tag:customer-portal:9443",
+        "tag:api-gateway:8443"
+      ]
+    },
+
+    // =====================================================================
+    // SERVICES CORE (todos los grupos normales)
+    // =====================================================================
+
+    // admin-portal: solo platform-eng
+    {
+      "action": "accept",
+      "src":    ["group:platform-eng@helios.example", "group:admins@helios.example", "autogroup:admin"],
+      "dst":    ["tag:admin-portal:8080", "tag:admin-portal:443"]
+    },
+
+    // identity-bridge: platform-eng + customer-success
+    {
+      "action": "accept",
+      "src":    ["group:platform-eng@helios.example", "group:admins@helios.example", "autogroup:admin", "group:customer-success@helios.example"],
+      "dst":    ["tag:identity-bridge:9090"]
+    },
+
+    // api-gateway: customer-portal + sales-eng + platform + admins
+    {
+      "action": "accept",
+      "src":    ["tag:customer-portal", "group:sales-eng@helios.example", "group:platform-eng@helios.example", "group:admins@helios.example", "autogroup:admin"],
+      "dst":    ["tag:api-gateway:8443"]
+    },
+
+    // customer-portal: customer-success + sales-eng + admins (NO engineers, NO viewers)
+    {
+      "action": "accept",
+      "src":    ["group:customer-success@helios.example", "group:sales-eng@helios.example", "group:admins@helios.example", "autogroup:admin"],
+      "dst":    ["tag:customer-portal:9443"]
+    },
+
+    // primary-db: SOLO identity-bridge + warehouse-job
+    {
+      "action": "accept",
+      "src":    ["tag:identity-bridge", "tag:warehouse-job"],
+      "dst":    ["tag:primary-db:5432"]
+    },
+
+    // warehouse-db: warehouse-job + data-eng + admins
+    {
+      "action": "accept",
+      "src":    ["tag:warehouse-job", "group:data-eng@helios.example", "group:admins@helios.example", "autogroup:admin"],
+      "dst":    ["tag:warehouse-db:5432"]
+    },
+
+    // ml-platform: predict para sales/CS/data-eng + admins + viewers (read)
+    {
+      "action": "accept",
+      "src":    ["group:sales-eng@helios.example", "group:customer-success@helios.example", "group:data-eng@helios.example", "group:admins@helios.example", "autogroup:admin"],
+      "dst":    ["tag:ml-platform:8501"]
+    },
+
+    // observability: SRE + admins + viewers (read)
+    {
+      "action": "accept",
+      "src":    ["group:sre@helios.example", "group:sre-lead@helios.example", "group:admins@helios.example", "group:viewers@helios.example", "autogroup:admin"],
+      "dst":    ["tag:observability:9100", "tag:observability:9101"]
+    },
+
+    // =====================================================================
+    // EKS GATEWAY — granularidad por puerto
+    // =====================================================================
+
+    // Metrics (9100): técnicos + viewers
+    {
+      "action": "accept",
+      "src":    ["group:sre@helios.example", "group:sre-lead@helios.example", "group:platform-eng@helios.example", "group:viewers@helios.example", "group:admins@helios.example", "autogroup:admin"],
+      "dst":    ["tag:eks-gateway:9100"]
+    },
+
+    // Logs (9101): SRE + platform-eng (NO viewers — puede tener PII)
+    {
+      "action": "accept",
+      "src":    ["group:sre@helios.example", "group:sre-lead@helios.example", "group:platform-eng@helios.example", "group:admins@helios.example", "autogroup:admin"],
+      "dst":    ["tag:eks-gateway:9101"]
+    },
+
+    // Exec (9102): solo sre-lead y admins (kubectl exec = shell)
+    {
+      "action": "accept",
+      "src":    ["group:sre-lead@helios.example", "group:admins@helios.example", "autogroup:admin"],
+      "dst":    ["tag:eks-gateway:9102"]
+    },
+
+    // =====================================================================
+    // EKS API server (kubectl)
+    // =====================================================================
+
+    // Viewer context: kubectl get/list/watch
+    {
+      "action": "accept",
+      "src":    ["tag:eks-viewer"],
+      "dst":    ["tag:eks-gateway:6443"]
+    },
+
+    // Editor context: kubectl get/create/update/delete (dev/staging)
+    {
+      "action": "accept",
+      "src":    ["tag:eks-editor"],
+      "dst":    ["tag:eks-gateway:6443"]
+    },
+
+    // Admin context: kubectl full
+    {
+      "action": "accept",
+      "src":    ["tag:eks-admin"],
+      "dst":    ["tag:eks-gateway:6443"]
+    }
+  ],
+
+  // =====================================================================
+  // SSH — bastion-less
+  // =====================================================================
+  // Importante: viewers NO tienen SSH. externals NO tienen SSH.
+  // Solo platform-eng, sre-lead, data-eng, admins pueden SSH.
+  "ssh": [
+    {
+      "action": "accept",
+      "src":    ["autogroup:admin", "group:admins@helios.example"],
+      "dst":    ["tag:admin-portal", "tag:identity-bridge", "tag:api-gateway", "tag:customer-portal", "tag:primary-db", "tag:warehouse-db", "tag:ml-platform", "tag:warehouse-job", "tag:observability", "tag:eks-gateway"],
+      "users":  ["autogroup:nonroot", "root"]
+    },
+    {
+      "action": "accept",
+      "src":    ["group:platform-eng@helios.example"],
+      "dst":    ["tag:admin-portal", "tag:identity-bridge", "tag:api-gateway", "tag:customer-portal", "tag:eks-gateway"],
+      "users":  ["autogroup:nonroot"]
+    },
+    {
+      "action": "accept",
+      "src":    ["group:data-eng@helios.example"],
+      "dst":    ["tag:warehouse-db", "tag:ml-platform", "tag:warehouse-job"],
+      "users":  ["autogroup:nonroot"]
+    },
+    {
+      "action": "accept",
+      "src":    ["group:sre-lead@helios.example"],
+      "dst":    ["tag:eks-gateway", "tag:observability"],
+      "users":  ["autogroup:nonroot"]
+    }
+  ]
+}

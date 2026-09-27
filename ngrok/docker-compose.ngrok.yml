@@ -1,0 +1,36 @@
+# Helios POC — ngrok tunnel for Authentik
+# =========================================================================
+# Exposes Authentik (running on localhost:9000) to the internet via HTTPS.
+# Necessary because Tailscale SaaS cannot call localhost:9000
+# from its servers for the SSO callback.
+#
+# Prerequisite setup:
+#   1. ngrok account: https://dashboard.ngrok.com/signup
+#   2. ngrok authtoken: ngrok config add-authtoken <token>
+#   3. (Optional) Reserve a custom domain in the dashboard for a fixed URL
+#
+# Bring up:
+#   docker compose -f ngrok/docker-compose.ngrok.yml up -d
+#
+# See public URL:
+#   docker compose -f ngrok/docker-compose.ngrok.yml logs ngrok | grep "tunnel"
+# =========================================================================
+
+services:
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: helios-ngrok
+    command:
+      - "start"
+      - "--all"
+      - "--config=/etc/ngrok.yml"
+    volumes:
+      - ./ngrok-config.yml:/etc/ngrok.yml:ro
+    ports:
+      - "4040:4040"   # ngrok web inspection UI
+    restart: unless-stopped
+    environment:
+      # The authtoken can also live in the config file (more secure).
+      # We keep it here as an env var so it doesn't accidentally end up in git.
+      # See ngrok-config.yml for the authtoken field.
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN:-}

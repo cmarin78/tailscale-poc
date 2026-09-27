@@ -1,0 +1,26 @@
+# MiniStack — local AWS emulator (post-pricing alternative to LocalStack)
+# =========================================================================
+# MiniStack only emulates the APIs (Secrets Manager, IAM, STS in this POC);
+# it does NOT run real EC2 instances (the mocks are HTTP endpoints that return JSON).
+#
+# In this POC we use it for:
+#   - Secrets Manager (identity-bridge and warehouse-job read credentials)
+#   - STS (Terraform needs AssumeRole for specific cases)
+#
+# What we DO NOT use:
+#   - RDS emulation (the Postgres instances are official images)
+#   - EC2 (not applicable — everything runs in Docker)
+# =========================================================================
+
+services:
+  ministack:
+    image: ministackorg/ministack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      - DEBUG=0
+    volumes:
+      # The socket allows MiniStack to spin up real containers if you use
+      # RDS emulation or other services that need state.
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped

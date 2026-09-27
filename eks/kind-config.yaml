@@ -1,0 +1,36 @@
+# Helios POC — kind cluster config
+# =========================================================================
+# Simulates an EKS-like cluster with 3 nodes (control-plane + 2 workers).
+# Internal apps (metrics-server, logs-collector, pod-exec) are exposed
+# as Services, which are then accessed via Tailscale tag-based ACLs.
+# =========================================================================
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: helios-eks-sim
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.30.0
+    # Port mappings to access the API server from the host
+    # (persona containers access via Tailscale, not via localhost)
+    extraPortMappings:
+      - containerPort: 6443  # API server
+        hostPort: 6443
+        protocol: TCP
+    # kubelet extra args so pods are visible from the tailnet
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        networking:
+          serviceSubnet: "100.64.0.0/12"   # matches Tailscale's CGNAT
+          podSubnet: "100.96.0.0/16"
+  - role: worker
+    image: kindest/node:v1.30.0
+  - role: worker
+    image: kindest/node:v1.30.0
+
+# Networking: kind uses the kind bridge by default. To connect to Tailscale
+# we bring up the cluster with the pre-created Docker network (network: kind).
+# This lets pods be accessible from other containers on the same kind network.
+
+# Label selector: tag the nodes so the scheduler uses them
+# according to the workload (simulates EKS nodeSelector).

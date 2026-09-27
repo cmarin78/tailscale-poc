@@ -1,0 +1,521 @@
+# Helios POC — services layer
+# Each tag is a "tailnet node" with its tailscale sidecar + real service sharing
+# network namespace. We isolate each one in its own Docker network to force
+# traffic to cross the real tailnet (not Compose's embedded DNS).
+
+# Truco: environment como MAPA (no lista) mergea correctamente con `<<:`. Si fuera
+# lista, el `environment:` del servicio pisa el anchor y se pierden TS_USERSPACE/
+# TS_ACCEPT_DNS, cayendo en userspace-networking sin interfaz kernel real.
+x-tailscale-env: &ts-env
+  TS_STATE_DIR: /var/lib/tailscale
+  TS_USERSPACE: "false"
+  TS_ACCEPT_DNS: "true"
+
+x-tailscale-common: &ts-common
+  image: tailscale/tailscale:latest
+  cap_add:
+    - NET_ADMIN
+    - NET_RAW
+  devices:
+    - /dev/net/tun:/dev/net/tun
+  restart: unless-stopped
+
+services:
+  # ===================== admin-portal =====================
+  ts-admin-portal:
+    <<: *ts-common
+    hostname: admin-portal
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_ADMIN_PORTAL}
+      TS_HOSTNAME: admin-portal
+      TS_TAGS: "tag:admin-portal"
+    volumes:
+      - ts-admin-portal-state:/var/lib/tailscale
+    networks:
+      - net-admin-portal
+
+  admin-portal:
+    build: ./apps/admin-portal
+    network_mode: "service:ts-admin-portal"
+    depends_on:
+      - ts-admin-portal
+    restart: unless-stopped
+
+  # ===================== identity-bridge =====================
+  ts-identity-bridge:
+    <<: *ts-common
+    hostname: identity-bridge
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_IDENTITY_BRIDGE}
+      TS_HOSTNAME: identity-bridge
+      TS_TAGS: "tag:identity-bridge"
+    volumes:
+      - ts-identity-bridge-state:/var/lib/tailscale
+    networks:
+      - net-identity-bridge
+
+  identity-bridge:
+    build: ./apps/identity-bridge
+    network_mode: "service:ts-identity-bridge"
+    depends_on:
+      - ts-identity-bridge
+    environment:
+      # The bridge gets DB credentials from MiniStack (simulated Secrets
+      # Manager) at runtime. This mirrors the prod pattern where secret
+      # rotation does not require a redeploy.
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=us-east-1
+      - SECRETS_MANAGER_SECRET_ID=helios/poc/secrets
+      - PRIMARY_DB_SECRET_KEY=primary_db
+    restart: unless-stopped
+
+  # ===================== api-gateway =====================
+  ts-api-gateway:
+    <<: *ts-common
+    hostname: api-gateway
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_API_GATEWAY}
+      TS_HOSTNAME: api-gateway
+      TS_TAGS: "tag:api-gateway"
+    volumes:
+      - ts-api-gateway-state:/var/lib/tailscale
+    networks:
+      - net-api-gateway
+
+  api-gateway:
+    build: ./apps/api-gateway
+    network_mode: "service:ts-api-gateway"
+    depends_on:
+      - ts-api-gateway
+    restart: unless-stopped
+
+  # ===================== customer-portal =====================
+  ts-customer-portal:
+    <<: *ts-common
+    hostname: customer-portal
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_CUSTOMER_PORTAL}
+      TS_HOSTNAME: customer-portal
+      TS_TAGS: "tag:customer-portal"
+    volumes:
+      - ts-customer-portal-state:/var/lib/tailscale
+    networks:
+      - net-customer-portal
+
+  customer-portal:
+    build: ./apps/customer-portal
+    network_mode: "service:ts-customer-portal"
+    depends_on:
+      - ts-customer-portal
+    restart: unless-stopped
+
+  # ===================== primary-db =====================
+  ts-primary-db:
+    <<: *ts-common
+    hostname: primary-db
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_PRIMARY_DB}
+      TS_HOSTNAME: primary-db
+      TS_TAGS: "tag:primary-db"
+    volumes:
+      - ts-primary-db-state:/var/lib/tailscale
+    networks:
+      - net-primary-db
+
+  primary-db:
+    image: postgres:16
+    network_mode: "service:ts-primary-db"
+    depends_on:
+      - ts-primary-db
+    environment:
+      # Real credentials are seeded via Terraform → MiniStack.
+      # Defaults go here; Terraform bootstrap replaces them when available.
+      - POSTGRES_DB=helios
+      - POSTGRES_USER=helios
+      - POSTGRES_PASSWORD=${PRIMARY_DB_PASSWORD:-change-me-local-poc}
+    volumes:
+      - primary-db-data:/var/lib/postgresql/data
+      - ./data/init/primary.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    restart: unless-stopped
+
+  # ===================== warehouse-db =====================
+  ts-warehouse-db:
+    <<: *ts-common
+    hostname: warehouse-db
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_WAREHOUSE_DB}
+      TS_HOSTNAME: warehouse-db
+      TS_TAGS: "tag:warehouse-db"
+    volumes:
+      - ts-warehouse-db-state:/var/lib/tailscale
+    networks:
+      - net-warehouse-db
+
+  warehouse-db:
+    image: postgres:16
+    network_mode: "service:ts-warehouse-db"
+    depends_on:
+      - ts-warehouse-db
+    environment:
+      - POSTGRES_DB=helios_warehouse
+      - POSTGRES_USER=helios
+      - POSTGRES_PASSWORD=${WAREHOUSE_DB_PASSWORD:-change-me-local-poc}
+    volumes:
+      - warehouse-db-data:/var/lib/postgresql/data
+      - ./data/init/warehouse.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    restart: unless-stopped
+
+  # ===================== ml-platform =====================
+  ts-ml-platform:
+    <<: *ts-common
+    hostname: ml-platform
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_ML_PLATFORM}
+      TS_HOSTNAME: ml-platform
+      TS_TAGS: "tag:ml-platform"
+    volumes:
+      - ts-ml-platform-state:/var/lib/tailscale
+    networks:
+      - net-ml-platform
+
+  ml-platform:
+    build: ./apps/ml-platform
+    network_mode: "service:ts-ml-platform"
+    depends_on:
+      - ts-ml-platform
+    restart: unless-stopped
+
+  # ===================== warehouse-job (one-shot) =====================
+  ts-warehouse-job:
+    <<: *ts-common
+    hostname: warehouse-job
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_WAREHOUSE_JOB}
+      TS_HOSTNAME: warehouse-job
+      TS_TAGS: "tag:warehouse-job"
+    volumes:
+      - ts-warehouse-job-state:/var/lib/tailscale
+    networks:
+      - net-warehouse-job
+
+  warehouse-job:
+    build: ./apps/warehouse-job
+    network_mode: "service:ts-warehouse-job"
+    depends_on:
+      - ts-warehouse-job
+    environment:
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=us-east-1
+      - SECRETS_MANAGER_SECRET_ID=helios/poc/secrets
+    restart: "no"
+
+  # ===================== observability =====================
+  ts-observability:
+    <<: *ts-common
+    hostname: observability
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_OBSERVABILITY}
+      TS_HOSTNAME: observability
+      TS_TAGS: "tag:observability"
+    volumes:
+      - ts-observability-state:/var/lib/tailscale
+    networks:
+      - net-observability
+
+  observability:
+    build: ./apps/observability
+    network_mode: "service:ts-observability"
+    depends_on:
+      - ts-observability
+    restart: unless-stopped
+
+  # ===================== eks-gateway (3 recursos en puertos distintos) =====================
+  ts-eks-gateway:
+    <<: *ts-common
+    hostname: eks-gateway
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_EKS_GATEWAY}
+      TS_HOSTNAME: eks-gateway
+      TS_TAGS: "tag:eks-gateway"
+    volumes:
+      - ts-eks-gateway-state:/var/lib/tailscale
+    networks:
+      - net-eks-gateway
+
+  eks-gateway:
+    build: ./apps/eks-gateway
+    network_mode: "service:ts-eks-gateway"
+    depends_on:
+      - ts-eks-gateway
+    restart: unless-stopped
+
+  # ===================== grafana =====================
+  ts-grafana:
+    <<: *ts-common
+    hostname: grafana
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_GRAFANA}
+      TS_HOSTNAME: grafana
+    volumes:
+      - ts-grafana-state:/var/lib/tailscale
+    networks:
+      - net-grafana
+
+  grafana:
+    build: ./apps/grafana
+    network_mode: "service:ts-grafana"
+    depends_on:
+      - ts-grafana
+    volumes:
+      - ./apps/grafana/provisioning:/etc/grafana/provisioning
+    restart: unless-stopped
+
+  # ===================== intranet =====================
+  ts-intranet:
+    <<: *ts-common
+    hostname: intranet
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_INTRANET}
+      TS_HOSTNAME: intranet
+    volumes:
+      - ts-intranet-state:/var/lib/tailscale
+    networks:
+      - net-intranet
+
+  intranet:
+    build: ./apps/intranet
+    network_mode: "service:ts-intranet"
+    depends_on:
+      - ts-intranet
+    restart: unless-stopped
+
+  # ===================== Personas (user nodes via SSO) =====================
+  # Each one simulates a Helios employee: runs tailscale + a shell client
+  # (nicolaka/netshoot). In prod they would be real laptops; here they are
+  # user-owned nodes with an empty tag (no tag: — they are personas, not services).
+  ts-diego-platform:
+    <<: *ts-common
+    hostname: diego-platform
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_DIEGO}
+      TS_HOSTNAME: diego-platform
+    volumes:
+      - ts-diego-state:/var/lib/tailscale
+    networks:
+      - net-diego
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+  diego-platform:
+    image: nicolaka/netshoot:latest
+    network_mode: "service:ts-diego-platform"
+    depends_on:
+      - ts-diego-platform
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+
+  ts-rafa-data:
+    <<: *ts-common
+    hostname: rafa-data
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_RAFA}
+      TS_HOSTNAME: rafa-data
+    volumes:
+      - ts-rafa-state:/var/lib/tailscale
+    networks:
+      - net-rafa
+
+  rafa-data:
+    image: nicolaka/netshoot:latest
+    network_mode: "service:ts-rafa-data"
+    depends_on:
+      - ts-rafa-data
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+
+  ts-sam-sre:
+    <<: *ts-common
+    hostname: sam-sre
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_SAM}
+      TS_HOSTNAME: sam-sre
+    volumes:
+      - ts-sam-state:/var/lib/tailscale
+    networks:
+      - net-sam
+
+  sam-sre:
+    image: nicolaka/netshoot:latest
+    network_mode: "service:ts-sam-sre"
+    depends_on:
+      - ts-sam-sre
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+
+  ts-lena-sre-lead:
+    <<: *ts-common
+    hostname: lena-sre-lead
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_LENA}
+      TS_HOSTNAME: lena-sre-lead
+    volumes:
+      - ts-lena-state:/var/lib/tailscale
+    networks:
+      - net-lena
+
+  lena-sre-lead:
+    image: nicolaka/netshoot:latest
+    network_mode: "service:ts-lena-sre-lead"
+    depends_on:
+      - ts-lena-sre-lead
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+
+  ts-carla-cs:
+    <<: *ts-common
+    hostname: carla-cs
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_CARLA}
+      TS_HOSTNAME: carla-cs
+    volumes:
+      - ts-carla-state:/var/lib/tailscale
+    networks:
+      - net-carla
+
+  carla-cs:
+    image: nicolaka/netshoot:latest
+    network_mode: "service:ts-carla-cs"
+    depends_on:
+      - ts-carla-cs
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+
+  ts-tomas-sales:
+    <<: *ts-common
+    hostname: tomas-sales
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_TOMAS}
+      TS_HOSTNAME: tomas-sales
+    volumes:
+      - ts-tomas-state:/var/lib/tailscale
+    networks:
+      - net-tomas
+
+  tomas-sales:
+    image: nicolaka/netshoot:latest
+    network_mode: "service:ts-tomas-sales"
+    depends_on:
+      - ts-tomas-sales
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+
+  ts-nina-auditor:
+    <<: *ts-common
+    hostname: nina-auditor
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_NINA}
+      TS_HOSTNAME: nina-auditor
+    volumes:
+      - ts-nina-state:/var/lib/tailscale
+    networks:
+      - net-nina
+
+  nina-auditor:
+    image: nicolaka/netshoot:latest
+    network_mode: "service:ts-nina-auditor"
+    depends_on:
+      - ts-nina-auditor
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+
+  # ===================== Atacante externo (debe ser DENIED) =====================
+  ts-eve-attacker:
+    <<: *ts-common
+    hostname: eve-attacker
+    environment:
+      <<: *ts-env
+      TS_AUTHKEY: ${TS_AUTHKEY_EVE}
+      TS_HOSTNAME: eve-attacker
+    volumes:
+      - ts-eve-state:/var/lib/tailscale
+    networks:
+      - net-eve
+
+  eve-attacker:
+    image: nicolaka/netshoot:latest
+    network_mode: "service:ts-eve-attacker"
+    depends_on:
+      - ts-eve-attacker
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+
+volumes:
+  ts-admin-portal-state:
+  ts-identity-bridge-state:
+  ts-api-gateway-state:
+  ts-customer-portal-state:
+  ts-primary-db-state:
+  ts-warehouse-db-state:
+  ts-ml-platform-state:
+  ts-warehouse-job-state:
+  ts-observability-state:
+  ts-eks-gateway-state:
+  ts-grafana-state:
+  ts-intranet-state:
+  ts-diego-state:
+  ts-rafa-state:
+  ts-sam-state:
+  ts-lena-state:
+  ts-carla-state:
+  ts-tomas-state:
+  ts-nina-state:
+  ts-eve-state:
+  primary-db-data:
+  warehouse-db-data:
+
+# Isolated network per node — without this, all sidecars fall into Compose's
+# default network and Docker resolves hostnames between them via embedded DNS,
+# bypassing the tailnet and making the ACL irrelevant.
+networks:
+  net-admin-portal:
+  net-identity-bridge:
+  net-api-gateway:
+  net-customer-portal:
+  net-primary-db:
+  net-warehouse-db:
+  net-ml-platform:
+  net-warehouse-job:
+  net-observability:
+  net-eks-gateway:
+  net-grafana:
+  net-intranet:
+  net-diego:
+  net-rafa:
+  net-sam:
+  net-lena:
+  net-carla:
+  net-tomas:
+  net-nina:
+  net-eve:

@@ -1,0 +1,8 @@
+aws_region           = "us-east-1"
+ministack_endpoint   = "http://localhost:4566"
+primary_db_password  = "helios-primary-poc-2026"
+warehouse_db_password = "helios-warehouse-poc-2026"
+
+# Pegar acá tu API key de Tailscale (https://login.tailscale.com/admin/settings/keys)
+tailscale_api_key    = "tskey-api-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+tailscale_tailnet    = "githubusercontent-com/your-handle"

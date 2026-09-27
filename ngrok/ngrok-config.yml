@@ -1,0 +1,28 @@
+# Helios POC — ngrok config
+# =========================================================================
+# The authtoken is passed via the NGROK_AUTHTOKEN env var (docker-compose sets it
+# from .env). Do NOT hardcode it here because it would end up in git.
+# To reserve a custom domain: set `domain: helios.ngrok.app` below.
+# =========================================================================
+
+version: "2"
+
+tunnels:
+  authentik:
+    proto: http
+    addr: router:7080
+    # If you have a reserved domain:
+    # domain: helios.ngrok.app
+    # Without a reserved domain, ngrok assigns a random one (changes on every restart)
+    schemes:
+      - https
+    inspect: true   # enables the debug web UI on :4040
+    # Bind TLS on a fixed subdomain (paid plans)
+    # bind_tls: true
+    # Host header rewrite (in case ngrok needs it)
+    # request_headers:
+    #   X-Forwarded-Proto: https
+
+# Log level
+log: stdout
+log_level: info

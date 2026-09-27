@@ -1,0 +1,193 @@
+// Helios POC — ACL policy v2 (con granular EKS + roles específicos)
+// =============================================================================
+// Esta versión extiende la policy original con:
+//   - Tags para los 3 roles de EKS (viewer, editor, admin)
+//   - Reglas granulares para acceder a los 3 puertos de eks-gateway
+//   - Los grupos Google ahora se mapean 1:1 a roles K8s
+//
+// Pegar en Tailscale admin console → Access Controls
+// Requiere Tailscale Business + Google Workspace SSO + SCIM para que
+// `group:rol@helios.example` se resuelva.
+// =============================================================================
+
+{
+  "tagOwners": {
+    "tag:admin-portal":     ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:identity-bridge":  ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:api-gateway":      ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:customer-portal":  ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:primary-db":       ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:warehouse-db":     ["autogroup:admin", "group:data-eng@helios.example"],
+    "tag:ml-platform":      ["autogroup:admin", "group:data-eng@helios.example"],
+    "tag:warehouse-job":    ["autogroup:admin", "group:data-eng@helios.example"],
+    "tag:observability":    ["autogroup:admin", "group:sre@helios.example", "group:sre-lead@helios.example"],
+    "tag:eks-gateway":      ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:eks-viewer":       ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:eks-editor":       ["autogroup:admin", "group:platform-eng@helios.example"],
+    "tag:eks-admin":        ["autogroup:admin", "group:platform-eng@helios.example", "group:sre-lead@helios.example"]
+  },
+
+  "acls": [
+    // =====================================================================
+    // SERVICES CORE
+    // =====================================================================
+
+    // admin-portal: solo platform-eng (operación interna)
+    {
+      "action": "accept",
+      "src":    ["group:platform-eng@helios.example", "autogroup:admin"],
+      "dst":    ["tag:admin-portal:8080", "tag:admin-portal:443"]
+    },
+
+    // identity-bridge: platform-eng + customer-success (soporte)
+    {
+      "action": "accept",
+      "src":    ["group:platform-eng@helios.example", "autogroup:admin", "group:customer-success@helios.example"],
+      "dst":    ["tag:identity-bridge:9090"]
+    },
+
+    // api-gateway: customer-portal (frontend) + sales-eng (demos) + platform
+    {
+      "action": "accept",
+      "src":    ["tag:customer-portal", "group:sales-eng@helios.example", "group:platform-eng@helios.example", "autogroup:admin"],
+      "dst":    ["tag:api-gateway:8443"]
+    },
+
+    // customer-portal: solo customer-success + sales-eng (NO engineers)
+    {
+      "action": "accept",
+      "src":    ["group:customer-success@helios.example", "group:sales-eng@helios.example", "autogroup:admin"],
+      "dst":    ["tag:customer-portal:9443"]
+    },
+
+    // primary-db: SOLO identity-bridge + warehouse-job
+    {
+      "action": "accept",
+      "src":    ["tag:identity-bridge", "tag:warehouse-job"],
+      "dst":    ["tag:primary-db:5432"]
+    },
+
+    // warehouse-db: warehouse-job + data-eng (read)
+    {
+      "action": "accept",
+      "src":    ["tag:warehouse-job", "group:data-eng@helios.example", "autogroup:admin"],
+      "dst":    ["tag:warehouse-db:5432"]
+    },
+
+    // ml-platform: predict para sales/CS/data-eng
+    {
+      "action": "accept",
+      "src":    ["group:sales-eng@helios.example", "group:customer-success@helios.example", "group:data-eng@helios.example", "autogroup:admin"],
+      "dst":    ["tag:ml-platform:8501"]
+    },
+
+    // observability: SRE + auditors (read)
+    {
+      "action": "accept",
+      "src":    ["group:sre@helios.example", "group:sre-lead@helios.example", "group:auditors@helios.example", "autogroup:admin"],
+      "dst":    ["tag:observability:9100", "tag:observability:9101"]
+    },
+
+    // =====================================================================
+    // EKS GATEWAY — granularidad por puerto (read metrics / read logs / exec)
+    // =====================================================================
+    // El modelo "granular por puerto" refleja lo que en EKS real serían
+    // permisos diferenciados:
+    //   - 9100 (metrics)  = kubectl top + CloudWatch  → viewer
+    //   - 9101 (logs)     = kubectl logs              → sre (no auditor)
+    //   - 9102 (exec)     = kubectl exec              → solo sre-lead/admin
+
+    // Metrics (9100): lo más permisivo — cualquier persona del equipo
+    // técnico o de auditoría puede ver métricas
+    {
+      "action": "accept",
+      "src":    ["group:sre@helios.example", "group:sre-lead@helios.example", "group:platform-eng@helios.example", "group:auditors@helios.example", "autogroup:admin"],
+      "dst":    ["tag:eks-gateway:9100"]
+    },
+
+    // Logs (9101): SRE solamente (auditor no ve logs — puede contener PII)
+    {
+      "action": "accept",
+      "src":    ["group:sre@helios.example", "group:sre-lead@helios.example", "group:platform-eng@helios.example", "autogroup:admin"],
+      "dst":    ["tag:eks-gateway:9101"]
+    },
+
+    // Exec (9102): solo sre-lead y admin (kubectl exec = shell into pod)
+    {
+      "action": "accept",
+      "src":    ["group:sre-lead@helios.example", "autogroup:admin"],
+      "dst":    ["tag:eks-gateway:9102"]
+    },
+
+    // =====================================================================
+    // EKS ROLES (para kubectl API server via Tailscale)
+    // =====================================================================
+    // Estos tags se aplican a los containers que actúan como "API server
+    // proxies" o al API server directamente expuesto vía Tailscale.
+    // La regla permite acceso al API server según rol.
+
+    // Viewer: kubectl get/list/watch (sin mutaciones)
+    {
+      "action": "accept",
+      "src":    ["tag:eks-viewer"],
+      "dst":    ["tag:eks-gateway:6443"]
+    },
+
+    // Editor: kubectl get/create/update/delete en dev/staging
+    {
+      "action": "accept",
+      "src":    ["tag:eks-editor"],
+      "dst":    ["tag:eks-gateway:6443"]
+    },
+
+    // Admin: full cluster (incluyendo prod)
+    {
+      "action": "accept",
+      "src":    ["tag:eks-admin"],
+      "dst":    ["tag:eks-gateway:6443"]
+    }
+
+    // =====================================================================
+    // EXTERNAL USER GROUP (deny-all explícito)
+    // =====================================================================
+    // Este grupo existe en el directorio para personas externas (clientes
+    // que ocasionalmente necesitan acceso limitado, auditores externos, etc.)
+    // NO aparece en ningún src → deny por construcción.
+  ],
+
+  // =====================================================================
+  // SSH — bastion-less
+  // =====================================================================
+  "ssh": [
+    {
+      "action": "accept",
+      "src":    ["autogroup:admin"],
+      "dst":    ["tag:admin-portal", "tag:identity-bridge", "tag:api-gateway", "tag:customer-portal", "tag:primary-db", "tag:warehouse-db", "tag:ml-platform", "tag:warehouse-job", "tag:observability", "tag:eks-gateway"],
+      "users":  ["autogroup:nonroot", "root"]
+    },
+    {
+      "action": "accept",
+      "src":    ["group:platform-eng@helios.example"],
+      "dst":    ["tag:admin-portal", "tag:identity-bridge", "tag:api-gateway", "tag:customer-portal"],
+      "users":  ["autogroup:nonroot"]
+    },
+    {
+      "action": "accept",
+      "src":    ["group:data-eng@helios.example"],
+      "dst":    ["tag:warehouse-db", "tag:ml-platform", "tag:warehouse-job"],
+      "users":  ["autogroup:nonroot"]
+    },
+    {
+      "action": "accept",
+      "src":    ["group:sre-lead@helios.example"],
+      "dst":    ["tag:eks-gateway", "tag:observability"],
+      "users":  ["autogroup:nonroot"]
+    },
+    {
+      "action": "accept",
+      "src":    ["group:platform-eng@helios.example"],
+      "dst":    ["tag:eks-gateway"],
+      "users":  ["autogroup:nonroot"]
+    }
+  ]
+}

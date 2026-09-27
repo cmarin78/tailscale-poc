@@ -1,0 +1,179 @@
+# Helios POC — RBAC matrix for the simulated EKS cluster
+# =========================================================================
+# This is the matrix that validates the "viewer / externals / admins" roles
+# you asked for. Each role is a ServiceAccount + RoleBinding/ClusterRoleBinding.
+#
+# Persona containers (Diego, Rafa, Sam, etc.) will have a kubeconfig with
+# 3 contexts:
+#   - viewer-context  (impersonates role:k8s-viewer, RBAC read-only)
+#   - editor-context  (impersonates role:k8s-editor, read+write designated namespaces)
+#   - admin-context   (impersonates role:k8s-admin, full)
+#
+# The tag in Tailscale determines which context is accessible:
+#   - tag:k8s-viewer  → kubectl --context=viewer
+#   - tag:k8s-editor  → kubectl --context=editor
+#   - tag:k8s-admin   → kubectl --context=admin
+# =========================================================================
+
+---
+# ServiceAccounts
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-viewer
+  namespace: kube-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-editor
+  namespace: kube-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-admin
+  namespace: kube-system
+---
+# ClusterRole: viewer (read-only global)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: helios-viewer
+rules:
+  - apiGroups: ["", "apps", "batch", "networking.k8s.io", "metrics.k8s.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/log", "pods/portforward"]
+    verbs: ["get"]
+  - nonResourceURLs: ["/healthz", "/readyz", "/metrics"]
+    verbs: ["get"]
+---
+# ClusterRole: editor (read+write en namespaces designados)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: helios-editor
+rules:
+  - apiGroups: ["", "apps", "batch", "networking.k8s.io"]
+    resources: ["*"]
+    verbs: ["*"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["get", "list", "watch"]
+---
+# ClusterRole: admin (full cluster)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: helios-admin
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+  - nonResourceURLs: ["*"]
+    verbs: ["*"]
+---
+# Bindings
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: helios-viewer-binding
+subjects:
+  - kind: ServiceAccount
+    name: k8s-viewer
+    namespace: kube-system
+  - kind: Group
+    name: helios-group:viewers
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: helios-viewer
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: helios-editor-binding
+subjects:
+  - kind: ServiceAccount
+    name: k8s-editor
+    namespace: kube-system
+  - kind: Group
+    name: helios-group:editors
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: helios-editor
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: helios-admin-binding
+subjects:
+  - kind: ServiceAccount
+    name: k8s-admin
+    namespace: kube-system
+  - kind: Group
+    name: helios-group:admins
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: helios-admin
+  apiGroup: rbac.authorization.k8s.io
+---
+# Namespaces separados por ambiente
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: helios-prod
+  labels:
+    env: prod
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: helios-staging
+  labels:
+    env: staging
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: helios-dev
+  labels:
+    env: dev
+---
+# Specific RoleBinding: editors CANNOT touch prod
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: editors-staging-only
+  namespace: helios-staging
+subjects:
+  - kind: Group
+    name: helios-group:editors
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: helios-editor
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: editors-dev-only
+  namespace: helios-dev
+subjects:
+  - kind: Group
+    name: helios-group:editors
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: helios-editor
+  apiGroup: rbac.authorization.k8s.io

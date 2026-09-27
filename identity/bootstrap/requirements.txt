@@ -1,0 +1,3 @@
+# Helios POC — bootstrap dependencies
+# Solo stdlib + urllib — no pip install necesario.
+# (Este archivo queda por consistencia; el seed.py no requiere deps externas.)

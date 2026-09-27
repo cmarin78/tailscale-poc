@@ -1,0 +1,1 @@
+# eks-gateway uses only stdlib — no pip install needed

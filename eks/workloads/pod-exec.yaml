@@ -1,0 +1,48 @@
+# EKS-like workload: pod-exec (simulates `kubectl exec`)
+# =========================================================================
+# This is the "dangerous" workload — only accessible to role:k8s-admin
+# because it allows opening a shell inside a pod (equivalent to having
+# SSH access to a machine).
+#
+# In the POC, this is modeled as another port on tag:eks-gateway:9102
+# and only sre-lead/admin can reach it (via policy.hujson).
+# =========================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-exec-target
+  namespace: helios-staging
+  labels:
+    app: pod-exec-target
+    tier: workload
+spec:
+  # ServiceAccount with elevated permissions — this is what role:k8s-admin
+  # can impersonate to enter the pod
+  serviceAccountName: pod-exec-sa
+  containers:
+  - name: shell
+    image: mcr.microsoft.com/aks/hcp/hcp-base-image:1.0.4-linux-musl
+    command: ["/bin/sh", "-c", "sleep infinity"]
+    ports:
+    - containerPort: 9102
+      name: exec
+    # In prod this would have a restrictive securityContext (no root, read-only fs, etc.)
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pod-exec-sa
+  namespace: helios-staging
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pod-exec-target
+  namespace: helios-staging
+spec:
+  selector:
+    app: pod-exec-target
+  ports:
+  - port: 9102
+    targetPort: 9102
+    name: exec
