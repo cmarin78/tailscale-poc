@@ -25,6 +25,45 @@ $EDITOR .env  # paste TS_AUTHKEY_* + NGROK_AUTHTOKEN + passwords
 ./scripts/heliosctl destroy    # nuke EVERYTHING
 ```
 
+## Refresh the lab (capture everything)
+
+A one-command lab refresh re-runs the POC and dumps every output (terminal transcripts, JSON, PNG diagrams and chrome headless screenshots of each web UI) into `docs/captures/`:
+
+```bash
+./scripts/refresh_captures.sh                 # full run, ~2 min
+./scripts/refresh_captures.sh --no-screenshots   # skip chrome (no GUI in CI)
+```
+
+What the script captures:
+
+| Source | Output file |
+|---|---|
+| `heliosctl validate` (host view) | `validate_host.txt` |
+| `heliosctl status` | `status_full.txt` |
+| `heliosctl validate` (with `TAILSCALE_API_KEY`) | `validate_final.txt` |
+| `docker exec <svc> python3 urllib /healthz` per service | `health_probes.txt` |
+| `tailscale status` from each sidecar | `tailscale_status.txt` |
+| MagicDNS view from `ts-admin-portal` sidecar | `admin_peers.txt` |
+| `tsctl.py policy get` (live HuJSON) | `live_policy_full.txt` + `live_policy_head.txt` |
+| `cross_service_real.py` (admin-portal -> 4 peers via 100.x overlay) | `cross_service_real.txt` |
+| `isolation_test.sh` (segregated docker networks) | `isolation_test_output.txt` |
+| `demo.sh --fast` (last 30 lines) | `demo_run.log` |
+| `verify.sh` (last 30 lines) | `verify_run.log` |
+| chrome headless screenshots (10 web UIs incl. Authentik via ngrok) | `screenshots/*.png` |
+
+After running it, regenerate the .docx so section 11d shows the latest evidence:
+
+```bash
+python3 scripts/generate_docs.py
+# writes docs/Helios-POC-Documentation.docx with 8 screenshots + terminal blocks embedded
+```
+
+### Live lab state (Sep-27-2026 refresh)
+
+Latest run output: `heliosctl validate` shows 7/7 checks pass, 9 of 13 sidecars logged into the live tailnet, 6 of 10 services responding HTTP 200 on `/healthz`, ngrok public URL active at `https://sardine-overact-blast.ngrok-free.dev`, Authentik OIDC discovery 200 via that URL.
+
+`refresh_captures.sh` is idempotent — safe to run as many times as needed.
+
 ## Detailed setup (first time)
 
 ### 1. System prerequisites

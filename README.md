@@ -67,18 +67,20 @@
 
 | Tag | Service | Function | Port |
 |---|---|---|---|
-| `tag:admin-portal` | Flask app | Internal admin panel (Helios ops + support) | 8080/443 |
+| `tag:admin-portal` | Flask app | Internal admin panel (Helios ops + support) | 8080 |
 | `tag:identity-bridge` | Flask app | Generic SSO bridge (similar to the migration-bridge, agnostic of upstream IdP) | 9090 |
 | `tag:api-gateway` | Flask app | Public gateway for B2B clients (Helios clients consume the API) | 8443 |
 | `tag:customer-portal` | Flask app | External portal for Helios clients (Tailscale Funnel in prod) | 9443 |
 | `tag:primary-db` | Postgres | Main transactional DB (customers, invoices, users) | 5432 |
 | `tag:warehouse-db` | Postgres | Data warehouse (analytics, ML training) | 5432 |
 | `tag:ml-platform` | Flask app | Serves ML models (fraud scoring, categorization) | 8501 |
-| `tag:warehouse-job` | Python job | Batch job that moves data from primary → warehouse | n/a |
-| `tag:observability` | Flask app | Metrics (Prometheus-style) + logs | 9100 |
+| `tag:warehouse-job` | Python job | Batch job that moves data from primary -> warehouse | n/a |
+| `tag:observability` | Flask app | Metrics (Prometheus-style) + logs + access log | 9100 |
 | `tag:eks-gateway` | Python app | Simulates 3 EKS resources (metrics/logs/exec) on different ports | 9100/9101/9102 |
+| `tag:grafana` | Grafana 11 | Pre-loaded with Prometheus datasource + Helios dashboard | 3000 |
+| `tag:intranet` | Flask app | Internal employee portal (role-gated sections) | 7000 |
 
-**10 tags, 10 containers, 10 isolated networks.** This is the attack-surface matrix that the policy has to govern.
+**12 tags, 10 service containers + 2 DBs + 1 EKS cluster (3 resources) + 1 Grafana + 1 intranet portal, all isolated networks.** This is the attack-surface matrix that the policy has to govern.
 
 ---
 
@@ -132,20 +134,31 @@ tailscale/
 │   ├── customer-portal/            ← Flask app + Dockerfile
 │   ├── ml-platform/                ← Flask app + Dockerfile (mock model)
 │   ├── warehouse-job/              ← Python job (one-shot script + Dockerfile)
-│   └── observability/              ← Flask app + Dockerfile (simulated metrics)
+│   ├── observability/              ← Flask app + Dockerfile (simulated metrics)
+│   ├── grafana/                    ← Real Grafana 11 with provisioning + dashboards/helios.json
+│   └── intranet/                   ← Flask app, role-gated sections
 ├── data/
 │   └── init/                       ← bootstrap SQL for primary-db and warehouse-db
+├── eks/                            ← kind + RBAC (viewer/editor/admin)
+├── ngrok/                          ← tunnel config (ngrok-free.dev)
+├── router/                         ← Flask proxy (WebFinger + Authentik)
 ├── terraform/                      ← seeds secrets in MiniStack
 ├── ministack/                      ← MiniStack config
 ├── scripts/
 │   ├── bootstrap.sh                ← full sequence: identity → secrets → tailnet
-│   ├── verify.sh                   ← allow/deny matrix (~25 cases)
+│   ├── verify.sh                   ← allow/deny matrix (46 cases)
 │   ├── teardown.sh                 ← cleanup
-│   └── tailnet-bootstrap.sh        ← generates authkeys per tag via Tailscale API
-└── docs/
-    ├── personas.md                 ← detail of the 9 personas
-    ├── decision-log.md             ← rationale for each piece
-    └── diagrams/architecture.mmd   ← Mermaid source
+│   ├── demo.sh                     ← 7-step guided walkthrough (--fast supported)
+│   ├── heliosctl                   ← lifecycle CLI (start/stop/status/validate/add/remove)
+│   ├── generate_docs.py            ← regenerates docs/Helios-POC-Documentation.docx
+│   └── refresh_captures.sh         ← re-runs the lab end-to-end and refreshes all captures
+├── docs/
+│   ├── personas.md                 ← detail of the 9 personas
+│   ├── decision-log.md             ← rationale for each piece
+│   ├── Helios-POC-Documentation.docx   ← human-readable deliverable (auto-generated)
+│   ├── captures/                   ← *.txt + *.json + *.png from real runs
+│   └── captures/screenshots/       ← chrome headless screenshots of web UIs
+└── diagrams/                       ← matplotlib-generated figures
 ```
 
 ---
@@ -162,15 +175,15 @@ tailscale/
 ### Sequence (with Google Workspace as IdP)
 
 ```bash
-# 1. Authkeys: generate 10 reusable auth keys (one per tag) in the Tailscale admin console
+# 1. Authkeys: generate 18 reusable auth keys (12 service + 6 persona) in the Tailscale admin console
 #    https://login.tailscale.com/admin/settings/keys
-#    Paste them in .env
+#    Paste them in .env as TS_AUTHKEY_<TAG>
 
 cp .env.example .env
 $EDITOR .env
 
 # 2. Configure Google Workspace as IdP (in production)
-#    a. Tailscale admin console → Settings → Identity Providers → Connect Google Workspace
+#    a. Tailscale admin console -> Settings -> Identity Providers -> Connect Google Workspace
 #    b. Select the Google groups to sync to Tailscale via SCIM
 #    c. policy.hujson references those groups as src
 
@@ -180,14 +193,46 @@ docker compose -f docker-compose.ministack.yml up -d
 # 4. Seed secrets in MiniStack via Terraform
 cd terraform && terraform init && terraform apply -auto-approve && cd ..
 
-# 5. Start services (each with its tailscale sidecar)
-docker compose up -d --build
+# 5. Start the full stack via the lifecycle CLI
+./scripts/heliosctl start all
 
-# 6. Apply the policy in the Tailscale admin console
+# 6. Run the validation check (7 quick checks)
+./scripts/heliosctl validate
+
+# 7. Apply the policy in the Tailscale admin console
 #    Paste the contents of acl/policy.hujson into Access Controls
 
-# 7. Run the verification matrix
+# 8. Run the verification matrix (46 cases)
 ./scripts/verify.sh
+
+# 9. Take a guided tour
+./scripts/demo.sh --fast
+```
+
+### Idempotent lab refresh (everything to docs/captures/)
+
+The repository ships a one-command lab refresh that re-runs the whole POC and
+captures every output (terminal transcripts, JSON, PNG diagrams and chrome
+headless screenshots of each web UI):
+
+```bash
+./scripts/refresh_captures.sh
+```
+
+What it does:
+
+- runs `heliosctl validate`, `heliosctl status`, and `heliosctl validate` again with `TAILSCALE_API_KEY`
+- probes each Flask service via `docker exec <container> python3 urllib /healthz` (real responses, not mocks)
+- takes chrome headless screenshots of each reachable web UI through socat forwards (host:29010-29018 -> sidecar IPs)
+- runs `isolation_test.sh`, `cross_service_real.py`, `demo.sh --fast`, `verify.sh` and saves stripped-of-ANSI transcripts
+- captures `tailscale status` from every sidecar and the live policy via tsctl
+- leaves everything under `docs/captures/` so `generate_docs.py` can re-render the .docx with section 11d populated
+
+After running it, regenerate the .docx to embed the fresh evidence:
+
+```bash
+python3 scripts/generate_docs.py
+# -> docs/Helios-POC-Documentation.docx (now with the latest lab run as section 11d)
 ```
 
 ### Alternative sequence (with Authentik as Google Workspace simulator)
@@ -254,7 +299,23 @@ docker compose -f docker-compose.ministack.yml down -v
 
 See `MATURITY.md`. Short version:
 
-1. ✅ This POC: pattern validated locally, ~50 nodes in mind.
-2. ⏭ Real Helios staging: bring up the same services in AWS staging, use real Google Workspace (not Authentik), add MDM.
-3. ⏭ Production: define SLOs, alerting, on-call, incident runbook, disaster-recovery tests.
-4. ⏭ Headscale evaluation: if compliance asks for an on-prem control plane, stand up Headscale as drop-in (the same `policy.hujson` should work; see `decision-log.md`).
+1. This POC: pattern validated locally, ~50 nodes in mind.
+2. Real Helios staging: bring up the same services in AWS staging, use real Google Workspace (not Authentik), add MDM.
+3. Production: define SLOs, alerting, on-call, incident runbook, disaster-recovery tests.
+4. Headscale evaluation: if compliance asks for an on-prem control plane, stand up Headscale as drop-in (the same `policy.hujson` should work; see `decision-log.md`).
+
+---
+
+## 10. Latest lab evidence
+
+The lab is refreshed on demand via `./scripts/refresh_captures.sh`. The current
+state of the sandbox is captured in:
+
+- `docs/captures/health_probes.txt` - per-service HTTP 200s from `docker exec`
+- `docs/captures/tailscale_status.txt` - every sidecar's 100.x IP + MagicDNS name
+- `docs/captures/live_policy_full.txt` - 206 lines of HuJSON applied to the tailnet
+- `docs/captures/cross_service_real.txt` - 100.x overlay HTTP from admin-portal to 4 peers
+- `docs/captures/isolation_test_output.txt` - 5 checks proving segregated docker networks
+- `docs/captures/demo_run.log`, `verify_run.log` - last runs of the demo and matrix
+- `docs/captures/screenshots/*.png` - chrome headless captures of every reachable web UI
+- `docs/Helios-POC-Documentation.docx` section 11d ("Real lab run") - everything above, embedded

@@ -18,6 +18,8 @@ This is the **complete work list** to take the POC from "basic functional POC" (
 | **Phase A: ngrok + Authentik setup** | ✅ structurally complete | Your action pending: paste NGROK_AUTHTOKEN + configure SSO in admin console |
 | **Phase B: kind + EKS RBAC** | ✅ structurally complete | Your action pending: `eks/scripts/setup.sh` (requires kind installed) |
 | **Phase C: refined roles matrix (viewers/externals/admins)** | ✅ complete | policy-v3-roles.hujson |
+| **Phase D: real lab refresh + live captures (Sep-2026)** | ✅ complete | `scripts/refresh_captures.sh` + `docs/captures/*.txt|png` + section 11d in `.docx` |
+| **Phase E: web UI screenshots via chrome headless** | ✅ complete | 10 PNGs in `docs/captures/screenshots/` (5 services not reachable from host, documented) |
 
 ## What's missing (roadmap)
 
