@@ -55,7 +55,7 @@ def add_heading(doc, text, level=1):
     return h
 
 
-def add_paragraph(doc, text, bold=False, italic=False, size=None, color=None):
+def add_paragraph(doc, text, bold=False, italic=False, size=None, color=None, no_proof=False):
     text = _strip_control_chars(text)
     p = doc.add_paragraph()
     run = p.add_run(text)
@@ -65,17 +65,25 @@ def add_paragraph(doc, text, bold=False, italic=False, size=None, color=None):
         run.font.size = Pt(size)
     if color:
         run.font.color.rgb = color
+    if no_proof:
+        rPr = run._r.get_or_add_rPr()
+        np = OxmlElement("w:noProof")
+        rPr.append(np)
     return p
 
 
 def add_code_block(doc, code, language="bash"):
-    """Code block monospace con fondo gris."""
+    """Code block: monospace, light gray background, no spell-check."""
     code = _strip_control_chars(code)
     p = doc.add_paragraph()
     run = p.add_run(code)
     run.font.name = "Courier New"
     run.font.size = Pt(8)
-    # background gris via XML
+    # Disable spell-check (technical terms like HELIOS_TS_AUTHKEY, boto3, psycopg, etc.
+    # would otherwise be underlined by OnlyOffice/Word)
+    rPr = run._r.get_or_add_rPr()
+    no_proof = OxmlElement("w:noProof")
+    rPr.append(no_proof)
     pPr = p._p.get_or_add_pPr()
     shd = OxmlElement("w:shd")
     shd.set(qn("w:fill"), "F4F4F4")
@@ -109,20 +117,49 @@ def _strip_control_chars(s):
 
 
 def add_terminal_block(doc, text, label=""):
-    """Bloque tipo 'terminal' con fondo negro y texto verde/blanco."""
+    """Block formatted as a terminal/console: light bg, monospace dark text, no spell-check.
+
+    Designed to be readable in any viewer (Word, OnlyOffice, LibreOffice, Google Docs).
+    The previous black-bg / gray-text version was illegible, especially in OnlyOffice.
+    """
     text = _strip_control_chars(text)
     if label:
-        add_paragraph(doc, f"$ {label}", italic=True, size=9, color=RGBColor(0x66, 0x66, 0x66))
+        add_paragraph(doc, f"$ {label}", italic=True, size=9, color=RGBColor(0x55, 0x55, 0x55), no_proof=True)
     for line in text.split("\n"):
         p = doc.add_paragraph()
+        # Tighter spacing inside the block
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after = Pt(0)
+        p.paragraph_format.line_spacing = 1.15
         run = p.add_run(line)
         run.font.name = "Courier New"
-        run.font.size = Pt(8)
-        run.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
+        run.font.size = Pt(9)
+        run.font.color.rgb = RGBColor(0x1A, 0x1A, 0x1A)
+        # Disable spell-check (.env, .yml, Dockerfile, hujson, JSONC, acls, etc.)
+        rPr = run._r.get_or_add_rPr()
+        no_proof = OxmlElement("w:noProof")
+        rPr.append(no_proof)
+        # Light gray background, left border accent so the block is visually distinct
         pPr = p._p.get_or_add_pPr()
         shd = OxmlElement("w:shd")
-        shd.set(qn("w:fill"), "1E1E1E")
+        shd.set(qn("w:fill"), "F2F2F2")
         pPr.append(shd)
+        # Add a left border to make the block visually distinguishable from body text
+        pBdr = OxmlElement("w:pBdr")
+        left = OxmlElement("w:left")
+        left.set(qn("w:val"), "single")
+        left.set(qn("w:sz"), "12")
+        left.set(qn("w:space"), "4")
+        left.set(qn("w:color"), "4A90E2")
+        pBdr.append(left)
+        pPr.append(pBdr)
+
+
+def _set_no_proof_on_run(run):
+    """Mark a run as noProof so spell-check skips it."""
+    rPr = run._r.get_or_add_rPr()
+    no_proof = OxmlElement("w:noProof")
+    rPr.append(no_proof)
 
 
 def add_table(doc, headers, rows, header_color="1F4E79"):
