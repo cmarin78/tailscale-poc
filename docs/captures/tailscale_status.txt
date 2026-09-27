@@ -1,0 +1,46 @@
+============================================================
+ Helios POC — Tailscale sidecar status
+ timestamp: 2026-09-27 10:41:28
+============================================================
+
+[tailscale-ts-admin-portal-1]
+100.124.232.36  admin-portal  admin-portal.taila1b884.ts.net  linux  -  
+
+[tailscale-ts-api-gateway-1]
+100.91.32.123  api-gateway      api-gateway.taila1b884.ts.net  linux  -  
+100.111.128.3  customer-portal  tagged-devices                 linux  -  
+
+[tailscale-ts-customer-portal-1]
+100.111.128.3  customer-portal  customer-portal.taila1b884.ts.net  linux  -  
+100.91.32.123  api-gateway      tagged-devices                     linux  -  
+
+[tailscale-ts-eks-gateway-1]
+100.124.105.125  eks-gateway-1  eks-gateway-1.tail790779.ts.net  linux  -                           
+100.66.5.101     eng-operator   tagged-devices                   linux  offline, last seen 18h ago  
+100.98.150.76    eng-viewer-1   tagged-devices                   linux  offline, last seen 18h ago  
+
+[tailscale-ts-grafana-1]
+Logged out.
+Log in at: https://login.tailscale.com/a/f2491de01b6aa
+
+[tailscale-ts-identity-bridge-1]
+100.95.15.72  identity-bridge  identity-bridge.taila1b884.ts.net  linux  -  
+100.105.4.95  primary-db       tagged-devices                     linux  -  
+
+[tailscale-ts-intranet-1]
+Logged out.
+Log in at: https://login.tailscale.com/a/fa7b64701e6e7
+
+[tailscale-ts-ml-platform-1]
+100.73.227.21  ml-platform  ml-platform.taila1b884.ts.net  linux  -  
+
+[tailscale-ts-observability-1]
+100.88.182.108  observability  observability.taila1b884.ts.net  linux  -  
+
+[tailscale-ts-primary-db-1]
+100.105.4.95  primary-db       primary-db.taila1b884.ts.net  linux  -  
+100.95.15.72  identity-bridge  tagged-devices                linux  -  
+
+[tailscale-ts-warehouse-db-1]
+100.108.33.33  warehouse-db  warehouse-db.taila1b884.ts.net  linux  -  
+

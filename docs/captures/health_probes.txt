@@ -1,0 +1,23 @@
+============================================================
+ Helios POC — per-service HTTP health probe
+ timestamp: 2026-09-27 10:40:42
+============================================================
+
+[admin-portal :8080]
+  HTTP 200  body={"status":"healthy"}
+
+[identity-bridge :9090]
+  HTTP 200  body={"status":"healthy"}
+
+[api-gateway :8443]
+  HTTP 200  body={"status":"healthy"}
+
+[customer-portal :9443]
+  HTTP 200  body={"status":"healthy"}
+
+[ml-platform :8501]
+  HTTP 200  body={"status":"healthy"}
+
+[observability :9100]
+  HTTP 200  body={"status":"healthy"}
+

@@ -1,0 +1,43 @@
+
+[1m[0;34m== Helios POC — status ==[0m
+
+[1mServices:[0m
+  [2mNAME                   STATE       [0m
+  [2madmin-portal           missing     [0m
+  [2midentity-bridge        missing     [0m
+  [2mapi-gateway            missing     [0m
+  [2mcustomer-portal        missing     [0m
+  [2mprimary-db             missing     [0m
+  [2mwarehouse-db           missing     [0m
+  [2mml-platform            missing     [0m
+  [2mwarehouse-job          missing     [0m
+  [2mobservability          missing     [0m
+  [2meks-gateway            missing     [0m
+
+[1mPersonas:[0m
+  [2mNAME                   STATE       [0m
+  [2mdiego-platform         missing     [0m
+  [2mrafa-data              missing     [0m
+  [2msam-sre                missing     [0m
+  [2mlena-sre-lead          missing     [0m
+  [2mcarla-cs               missing     [0m
+  [2mtomas-sales            missing     [0m
+  [2mnina-auditor           missing     [0m
+  [2meve-attacker           missing     [0m
+
+[1mIdentity (Authentik):[0m
+  [2mnot running[0m (heliosctl start identity)
+
+[1mMinistack:[0m
+  [2mnot running[0m (heliosctl start ministack)
+
+[1mTerraform:[0m
+  [1;33mnot initialized[0m (heliosctl start terraform)
+
+[1mEKS sim (kind):[0m
+  [2mnot created[0m (heliosctl start eks)
+
+[1mngrok:[0m
+  [0;32mrunning[0m → '(check docker logs helios-ngrok)'
+
+[1mSummary:[0m 9/18 nodes running on the tailnet

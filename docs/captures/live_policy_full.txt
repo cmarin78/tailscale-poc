@@ -1,0 +1,30 @@
+  loading config from /home/cmarin78/Documents/Projects/MiniMax/Headscale/tailscale/.env
+Current ACL policy (HuJSON)
+Traceback (most recent call last):
+  File "/home/cmarin78/Documents/Projects/MiniMax/Headscale/tailscale/../tools/tsctl.py", line 63, in <module>
+    main()
+    ~~~~^^
+  File "/home/cmarin78/Documents/Projects/MiniMax/Headscale/tailscale/../tools/tsctl/__init__.py", line 470, in main
+    args.func(client, args)
+    ~~~~~~~~~^^^^^^^^^^^^^^
+  File "/home/cmarin78/Documents/Projects/MiniMax/Headscale/tailscale/../tools/tsctl/__init__.py", line 313, in cmd_policy_get
+    policy = client.policy_get()
+  File "/home/cmarin78/Documents/Projects/MiniMax/Headscale/tailscale/../tools/tsctl/__init__.py", line 133, in policy_get
+    with urllib.request.urlopen(req, timeout=30) as resp:
+         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/home/linuxbrew/.linuxbrew/Cellar/python@3.14/3.14.7/lib/python3.14/urllib/request.py", line 187, in urlopen
+    return opener.open(url, data, timeout)
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/home/linuxbrew/.linuxbrew/Cellar/python@3.14/3.14.7/lib/python3.14/urllib/request.py", line 493, in open
+    response = meth(req, response)
+  File "/home/linuxbrew/.linuxbrew/Cellar/python@3.14/3.14.7/lib/python3.14/urllib/request.py", line 602, in http_response
+    response = self.parent.error(
+        'http', request, response, code, msg, hdrs)
+  File "/home/linuxbrew/.linuxbrew/Cellar/python@3.14/3.14.7/lib/python3.14/urllib/request.py", line 531, in error
+    return self._call_chain(*args)
+           ~~~~~~~~~~~~~~~~^^^^^^^
+  File "/home/linuxbrew/.linuxbrew/Cellar/python@3.14/3.14.7/lib/python3.14/urllib/request.py", line 464, in _call_chain
+    result = func(*args)
+  File "/home/linuxbrew/.linuxbrew/Cellar/python@3.14/3.14.7/lib/python3.14/urllib/request.py", line 611, in http_error_default
+    raise HTTPError(req.full_url, code, msg, hdrs, fp)
+urllib.error.HTTPError: HTTP Error 401: Unauthorized

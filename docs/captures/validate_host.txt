@@ -1,0 +1,26 @@
+
+[1m[0;34m== POC end-to-end validation ==[0m
+
+[0;36mℹ[0m 1. Check .env
+[0;32m✓[0m   .env has 18 auth keys
+
+[0;36mℹ[0m 2. Check docker-compose.yml
+[0;32m✓[0m   docker-compose.yml is valid
+
+[0;36mℹ[0m 3. Check apps/ have Dockerfile OR base image
+[0;32m✓[0m   all apps have a Dockerfile or base image
+
+[0;36mℹ[0m 4. Check acl/policy.hujson (JSONC)
+  ✓ valid JSONC: 13 acls, 4 ssh, 12 tags
+
+[0;36mℹ[0m 5. Check running containers
+[1;33m⚠[0m   9/18 containers running (some missing — sandbox pool limit?)
+[0;36mℹ[0m   run: heliosctl restart all (may fail due to docker network pool)
+
+[0;36mℹ[0m 6. Check Tailscale API access
+[0;36mℹ[0m   TAILSCALE_API_KEY not set — skip
+
+[0;36mℹ[0m 7. Check ngrok
+[0;32m✓[0m   ngrok running: https://sardine-overact-blast.***REDACTED***.dev
+
+[0;32m✓[0m ✓ Validation OK — POC ready to use

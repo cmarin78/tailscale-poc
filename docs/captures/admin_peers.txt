@@ -1,0 +1,10 @@
+============================================================
+ Helios POC — admin-portal sidecar peers (MagicDNS view)
+============================================================
+100.124.232.36  admin-portal  admin-portal.taila1b884.ts.net  linux  -  
+
+# Health check:
+#     - running [/usr/sbin/iptables -t filter -N ts-input --wait]: exit status 3: modprobe: can't change directory to '/lib/modules': No such file or directory
+iptables v1.8.11 (legacy): can't initialize iptables table `filter': Table does not exist (do you need to insmod?)
+Perhaps iptables or your kernel needs to be upgraded.
+
