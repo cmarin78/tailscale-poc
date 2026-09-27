@@ -162,13 +162,13 @@ def add_image(doc, path, caption="", width_inches=6.0):
         doc.add_picture(str(path), width=Inches(width_inches))
         if caption:
             p = doc.add_paragraph()
-            run = p.add_run(f"Figura: {caption}")
+            run = p.add_run(f"Figure: {caption}")
             run.italic = True
             run.font.size = Pt(9)
             run.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     else:
-        add_paragraph(doc, f"[imagen faltante: {path}]", italic=True, color=RGBColor(0x99, 0x99, 0x99))
+        add_paragraph(doc, f"[image missing: {path}]", italic=True, color=RGBColor(0x99, 0x99, 0x99))
 
 
 def add_page_break(doc):
@@ -234,7 +234,7 @@ def make_architecture_diagram(out_path):
     box(3.7, 0.2, 1.6, 0.9, col_user, "sam", "sre")
     box(5.4, 0.2, 1.6, 0.9, col_user, "lena", "sre-lead")
     box(7.1, 0.2, 1.6, 0.9, col_user, "carla", "customer-success")
-    box(8.8, 0.2, 1.6, 0.9, col_user, "eve", "atacante")
+    box(8.8, 0.2, 1.6, 0.9, col_user, "eve", "attacker")
     box(10.6, 0.2, 1.2, 0.9, col_external, "ngrok", "")
 
     # Flechas: IdP → Control
@@ -260,20 +260,21 @@ def make_architecture_diagram(out_path):
     ax.text(11.5, 4.0, "↓ Tailscale\n   magicDNS\n↓ resolves\n   across all\n   containers",
             fontsize=7, color="gray", va="center")
 
-    # Leyenda
+    # Legend
     legend_elements = [
         mpatches.Patch(color=col_idp, label="Identity Provider"),
         mpatches.Patch(color=col_ctrl, label="Control plane"),
         mpatches.Patch(color=col_svc, label="Services (10)"),
         mpatches.Patch(color=col_data, label="Data layer (2)"),
         mpatches.Patch(color=col_user, label="People (8)"),
-        mpatches.Patch(color=col_external, label="Externos (ngrok)"),
+        mpatches.Patch(color=col_external, label="External (ngrok)"),
     ]
     ax.legend(handles=legend_elements, loc="upper right", fontsize=8, framealpha=0.9)
 
-    plt.title("Helios POC — Arquitectura del Tailnet", fontsize=13, fontweight="bold")
+    plt.title("Helios POC - Tailnet Architecture", fontsize=13, fontweight="bold")
     plt.tight_layout()
-    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.patch.set_facecolor("white")
+    plt.savefig(out_path, dpi=120, bbox_inches="tight", facecolor="white")
     plt.close()
 
 
@@ -327,24 +328,24 @@ def make_acl_matrix_diagram(out_path):
     for spine in ax.spines.values():
         spine.set_visible(False)
 
-    # Título y leyenda
-    plt.title("Matriz de acceso: roles (filas) × servicios (columnas)\n"
-              "Verde = allow, Rojo = deny",
+    # Title and legend
+    plt.title("Access matrix: roles (rows) x services (columns)\n"
+              "Green = allow, Red = deny",
               fontsize=12, fontweight="bold", pad=20)
     legend_elements = [
-        mpatches.Patch(color="#27ae60", label="Allow (puede llegar)"),
-        mpatches.Patch(color="#e74c3c", label="Deny (no llega)"),
+        mpatches.Patch(color="#27ae60", label="Allow (can reach)"),
+        mpatches.Patch(color="#e74c3c", label="Deny (blocked)"),
     ]
     ax.legend(handles=legend_elements, loc="upper left", bbox_to_anchor=(1.02, 1), fontsize=9)
 
     plt.tight_layout()
-    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.savefig(out_path, dpi=120, bbox_inches="tight", facecolor="white")
     plt.close()
 
 
 def make_tag_hierarchy_diagram(out_path):
-    """Diagrama de los tags y su relación con services y grupos."""
-    fig, ax = plt.subplots(figsize=(11, 6))
+    """Diagram of the tags and their relationship with services and groups."""
+    fig, ax = plt.subplots(figsize=(13, 7))
 
     # Capas: tags → services
     tags = [
@@ -400,17 +401,18 @@ def make_tag_hierarchy_diagram(out_path):
                 fontsize=8, color="white", fontweight="bold")
 
     # Título y leyenda
-    plt.title("Mapeo de grupos / tags anidados a tags de servicio",
+    plt.title("Mapping of groups/nested tags to service tags",
               fontsize=11, fontweight="bold")
     legend_elements = [
-        mpatches.Patch(color=col_actor, label="Grupos (Google / Authentik)"),
-        mpatches.Patch(color=col_group, label="Tags (servicios intermedios)"),
-        mpatches.Patch(color=col_tag, label="Tags (servicios expuestos)"),
+        mpatches.Patch(color=col_actor, label="Groups (Google / Authentik)"),
+        mpatches.Patch(color=col_group, label="Tags (intermediate services)"),
+        mpatches.Patch(color=col_tag, label="Tags (exposed services)"),
     ]
     ax.legend(handles=legend_elements, loc="upper left", fontsize=8)
 
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    ax.set_xlim(-0.5, 13)
+    ax.set_ylim(-0.5, 12)
+    plt.savefig(out_path, dpi=120, facecolor="white", bbox_inches="tight", pad_inches=0.2)
     plt.close()
 
 
@@ -421,11 +423,11 @@ def make_isolation_diagram(out_path):
 
     # Tres grupos visuales
     groups = [
-        ("tier datos", 0.5, 5.0, ["primary-db", "warehouse-db", "rds-sim"], "#16a085"),
-        ("tier servicios", 4.0, 5.0, ["admin-portal", "identity-bridge", "api-gateway", "customer-portal",
+        ("data tier", 0.5, 5.0, ["primary-db", "warehouse-db", "rds-sim"], "#16a085"),
+        ("services tier", 4.0, 5.0, ["admin-portal", "identity-bridge", "api-gateway", "customer-portal",
                                       "ml-platform", "warehouse-job", "observability", "eks-gateway",
                                       "grafana", "intranet"], "#2980b9"),
-        ("tier personas", 8.0, 5.0, ["diego-platform", "rafa-data", "sam-sre", "lena-sre-lead",
+        ("personas tier", 8.0, 5.0, ["diego-platform", "rafa-data", "sam-sre", "lena-sre-lead",
                                      "carla-cs", "tomas-sales", "nina-auditor", "eve-attacker"], "#e67e22"),
     ]
 
@@ -454,25 +456,25 @@ def make_isolation_diagram(out_path):
     # Flecha Tailscale overlay (la "magia" que rompería el aislamiento)
     ax.annotate("", xy=(11.0, 5.0), xytext=(0.4, 5.0),
                 arrowprops=dict(arrowstyle="<->", color="#8e44ad", lw=2.5, ls="--"))
-    ax.text(5.7, 5.65, "Tailscale tailnet overlay (100.x) — quebranta el aislamiento",
+    ax.text(5.7, 5.65, "Tailscale tailnet overlay (100.x) breaks the network isolation",
             ha="center", fontsize=10, fontweight="bold", color="#8e44ad")
-    ax.text(5.7, 4.4, "Sin tailnet: cada container en su propia red bridge — tráfico cross-tier BLOQUEADO",
+    ax.text(5.7, 4.4, "Without tailnet: each container on its own bridge - cross-tier traffic BLOCKED",
             ha="center", fontsize=9, style="italic", color="#7f8c8d")
 
     # Nota al pie
     ax.text(6.0, 0.5,
             "El POC fuerza el aislamiento via docker networks separados para que todo el tráfico pase por Tailscale.\n"
-            "Las ACLs (tag-based) actúan como filtro encima del tailnet.",
+            "Tag-based ACLs act as a filter on top of the tailnet.",
             ha="center", fontsize=9, color="#34495e", style="italic")
 
     ax.set_xlim(0, 12)
     ax.set_ylim(0, 11)
     ax.set_aspect("equal")
     ax.axis("off")
-    plt.title("Aislamiento de red en el POC: docker bridges segregados + Tailscale overlay",
+    plt.title("Network isolation in the POC: segregated docker bridges + Tailscale overlay",
               fontsize=12, fontweight="bold", pad=20)
     plt.tight_layout()
-    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.savefig(out_path, dpi=120, bbox_inches="tight", facecolor="white")
     plt.close()
 
 
