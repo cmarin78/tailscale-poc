@@ -250,9 +250,9 @@ kubectl auth can-i create pods --as=system:serviceaccount:kube-system:k8s-admin
 ./eks/scripts/teardown.sh
 ```
 
-## Differences with the original Axial POC
+## Differences with the original previous POC
 
-| Aspect | Axial POC (orig) | Helios POC (this) |
+| Aspect | previous POC (orig) | Helios POC (this) |
 |---|---|---|
 | Tag count | 9 | 13 (+ EKS roles) |
 | Policy versions | 1 | 4 (no-groups, v1, v2, v3) |

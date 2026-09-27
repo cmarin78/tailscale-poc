@@ -19,7 +19,7 @@ Why we chose each piece. This is for future contributors wondering "why not X in
 **Decision:** use Tailscale SaaS in this POC.
 
 **Why:**
-- The team already agreed on this direction in Sep-2026 (see `decision-log.md` of the original Axial POC).
+- The team already agreed on this direction in Sep-2026 (see `decision-log.md` of the original previous POC).
 - Headscale is excellent but requires operating 162K LoC of code + maintaining parity with upstream Tailscale. It brings no immediate benefit for the pattern we're validating.
 - Tailscale SaaS provides SSO with Google Workspace out of the box (deeper than generic OIDC: it syncs groups via SCIM automatically).
 
@@ -67,7 +67,7 @@ Why we chose each piece. This is for future contributors wondering "why not X in
 
 **Why:**
 - Allows secrets rotation without redeploy.
-- Models the exact prod pattern. The earlier POC (migration-bridge in the original Axial POC) already validated this pattern; we extend it.
+- Models the exact prod pattern. The earlier POC (migration-bridge in the original previous POC) already validated this pattern; we extend it.
 - The lazy cache prevents the container from crashing if MiniStack isn't ready at boot.
 
 **Trade-off:** adds latency on the first request. Acceptable for a low-frequency service like identity-bridge. For something high-frequency (api-gateway) we'd use a secrets sidecar or env vars.

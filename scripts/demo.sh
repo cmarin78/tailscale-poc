@@ -101,7 +101,7 @@ pause 3
 [ "$STOP_AT" -lt 3 ] && exit 0
 step 3 "Show the tailnet (devices in Tailscale)"
 
-echo "→ List devices in the cerberusbyte.com tailnet..."
+echo "→ List devices in the example-tailnet.com tailnet..."
 python3 ../tools/tsctl.py device list 2>&1 | tail -20
 echo
 echo "→ Filter by tag (e.g. tag:eks-gateway)..."
@@ -195,7 +195,7 @@ echo "  2. Setup MDM (Apple Business Manager / Mosyle / Intune)"
 echo "  3. Activate Prometheus alerts + on-call runbook"
 echo "  4. Audit Tailscale logs in SIEM"
 echo
-echo "Comparison with your previous POC (Axial):"
-echo "  - Axial: 5 tags, 1 policy file, no SSO testing"
+echo "Comparison with your previous POC (previous POC):"
+echo "  - previous POC: 5 tags, 1 policy file, no SSO testing"
 echo "  - Helios: 13 tags, 4 policy versions, simulated SSO, EKS RBAC, ngrok ready"
 echo

@@ -14,7 +14,7 @@ This is the **complete work list** to take the POC from "basic functional POC" (
 | `tools/hsctl.py` admin CLI (Headscale) | ✅ complete | |
 | Parallel POC with Headscale (`headscale/`) | ✅ complete | parallel structure |
 | Documentation (ARCHITECTURE, MATURITY, decision-log, comparison, ROADMAP, POC_OPERATIONS) | ✅ complete | |
-| **Active Business Trial (`cerberusbyte.com`)** | ✅ operational | Supports SSO + SCIM + custom OIDC |
+| **Active Business Trial (`example-tailnet.com`)** | ✅ operational | Supports SSO + SCIM + custom OIDC |
 | **Phase A: ngrok + Authentik setup** | ✅ structurally complete | Your action pending: paste NGROK_AUTHTOKEN + configure SSO in admin console |
 | **Phase B: kind + EKS RBAC** | ✅ structurally complete | Your action pending: `eks/scripts/setup.sh` (requires kind installed) |
 | **Phase C: refined roles matrix (viewers/externals/admins)** | ✅ complete | policy-v3-roles.hujson |
@@ -26,7 +26,7 @@ This is the **complete work list** to take the POC from "basic functional POC" (
 **Why:** for the policy with `group:platform-eng@helios.example` to work, Tailscale SaaS needs to receive those groups via OIDC. Authentik emits them, ngrok exposes them publicly.
 
 **Tasks:**
-1. [ ] Create OAuth client in Google Cloud Console for `cmarinvalios@cerberusbyte.com` (or use Authentik as IdP instead of Google)
+1. [ ] Create OAuth client in Google Cloud Console for `cmarinvalios@example-tailnet.com` (or use Authentik as IdP instead of Google)
 2. [ ] Bring up ngrok (`ngrok http 9000`) to expose Authentik
 3. [ ] Configure Authentik as IdP in Tailscale SaaS admin console
 4. [ ] Configure redirect URI in Authentik: `https://login.tailscale.com/a/callback`

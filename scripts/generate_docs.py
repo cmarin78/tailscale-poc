@@ -532,7 +532,7 @@ def generate(out_path):
     meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
     meta.add_run(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n").italic = True
     meta.add_run("Working dir: /home/cmarin78/Documents/Projects/MiniMax/Headscale/\n").italic = True
-    meta.add_run("Tailnet: cerberusbyte.com (Tailscale Business trial)\n").italic = True
+    meta.add_run("Tailnet: example-tailnet.com (Tailscale Business trial)\n").italic = True
     meta.add_run("10 services + 9 personas + 13 tags + 1 IdP + 1 simulated EKS + ngrok tunnel").italic = True
 
     doc.add_page_break()
@@ -1086,7 +1086,7 @@ done""", language="bash")
         italic=True
     )
     final_validate = capture_command(
-        "cd /home/cmarin78/Documents/Projects/MiniMax/Headscale/tailscale && TAILSCALE_API_KEY=\"$TAILSCALE_API_KEY\" TAILSCALE_TAILNET=\"cerberusbyte.com\" bash scripts/heliosctl validate 2>&1",
+        "cd /home/cmarin78/Documents/Projects/MiniMax/Headscale/tailscale && TAILSCALE_API_KEY=\"$TAILSCALE_API_KEY\" TAILSCALE_TAILNET=\"example-tailnet.com\" bash scripts/heliosctl validate 2>&1",
         "validate_final",
         CAPTURES_DIR / "validate_final.txt",
     )
@@ -1099,7 +1099,7 @@ done""", language="bash")
         "In this sandbox, 9 services from the new schema (admin-portal, identity-bridge, "
         "api-gateway, customer-portal, ml-platform, observability, primary-db, warehouse-db, grafana + intranet) "
         "were brought up with their tailscale sidecars. 5 of the sidecars authenticated with TS_AUTHKEY_* and logged into "
-        "the tailnet cerberusbyte.com, receiving 100.x IPs and MagicDNS names (admin-portal.taila1b884.ts.net, etc.)."
+        "the tailnet example-tailnet.com, receiving 100.x IPs and MagicDNS names (admin-portal.taila1b884.ts.net, etc.)."
     )
     add_paragraph(doc, "Logged-in sidecars status:", bold=True)
     sidecar_rows = [
@@ -1128,7 +1128,7 @@ done""", language="bash")
     )
     add_terminal_block(doc, cross_out, label="cross_service_real.py (admin-portal -> 4 nodes via Tailscale)")
 
-    add_paragraph(doc, "Live policy currently applied to the cerberusbyte.com tailnet:", bold=True)
+    add_paragraph(doc, "Live policy currently applied to the example-tailnet.com tailnet:", bold=True)
     add_paragraph(doc,
         "The CLI `tsctl.py policy get` returns 208 lines of HuJSON. The visible rule is: "
         "`autogroup:admin -> tag:identity-bridge:9090` (allow), but there are NO rules "
@@ -1225,7 +1225,7 @@ done""", language="bash")
     live_headers = ["Container", "Image", "Uptime", "Function"]
     live_rows = [
         ["admin-panel-1", "tailscale-admin-panel", "46 h", "Flask :8080 - healthcheck passes"],
-        ["rds-sim-1", "postgres:16", "43 h", "Postgres with user `axial` / DB `axial_poc`"],
+        ["rds-sim-1", "postgres:16", "43 h", "Postgres with user `demo` / DB `poc_db`"],
         ["migration-bridge-1", "tailscale-migration-bridge", "47 h", "boto3 + Flask - fake Secrets Manager"],
         ["eks-workload-1", "tailscale-eks-workload", "43 h", "Python app over a kind-like cluster"],
         ["internal-db-1", "postgres:16", "2 d", "Internal DB (auth, sessions)"],

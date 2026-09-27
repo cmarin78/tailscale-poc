@@ -23,7 +23,7 @@ This POC is **Level 1**. It covers the network pattern and IdP integration. What
 **What changes:**
 - Replace Authentik with real Google Workspace (same OIDC flow, different issuer).
 - Bring up the same containers in an AWS staging EKS.
-- Replace the mocks (Flask apps with hardcoded JSON) with the real Helios services (`axial-api`, `service-lib`, etc).
+- Replace the mocks (Flask apps with hardcoded JSON) with the real Helios services (`primary-api`, `service-lib`, etc).
 - Activate MDM with Apple Business Manager (once the MDM vendor is decided).
 
 **What gets validated:**

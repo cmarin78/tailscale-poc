@@ -4,10 +4,10 @@
     {"status":"healthy"}
 
 
-[2] rds-sim responds locally with user axial
+[2] rds-sim responds locally with user demo
  current_user | current_database
 --------------+------------------
- axial        | axial_poc
+ primary        | poc_db
 (1 row)
 
 [3] eng-operator CANNOT resolve admin-panel via DNS (isolated network tailscale_net-eng-operator)
